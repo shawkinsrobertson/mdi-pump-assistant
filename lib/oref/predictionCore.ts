@@ -1,0 +1,210 @@
+// The pure core of the oref0 orchestration: given already-loaded data, build
+// oref0's inputs and call the vendored determine_basal(). No DB/AsyncStorage
+// access here (not even via a type-only re-export) — every import below is
+// either the vendored algorithm or `import type`, both erased/inert at
+// runtime — so this file can be required under jest without pulling in
+// expo-sqlite (see runPrediction.ts, which is the thin I/O shell that
+// fetches real data and calls into this file).
+import determineBasal from '../oref-vendor/lib/determine-basal/determine-basal';
+import generateMealData from '../oref-vendor/lib/meal';
+import getLastGlucose from '../oref-vendor/lib/glucose-get-last';
+import iobGenerate from '../oref-vendor/lib/iob';
+import tempBasalFunctions from '../oref-vendor/lib/basal-set-temp';
+
+import type { BasalDoseRecord } from '../db/basalDoses';
+import type { Treatment } from '../db/treatments';
+import type { GlucoseReading } from '../glucose';
+import { currentBasalRate } from '../mdi/basalCurve';
+import type { Settings } from '../settings';
+
+// oref0's own algorithm-internal tuning constants (not personal clinical
+// values — these are the published defaults oref0 itself ships with, kept
+// as part of vendoring the algorithm rather than invented by this app).
+const CARBS_REQ_THRESHOLD = 1; // g
+const MIN_5M_CARBIMPACT = 8; // mg/dL per 5m
+const MAX_COB = 120; // g
+
+// oref0-meal.js's own CLI bails on carb-absorption detection below this
+// many glucose points ("Not enough glucose data to calculate carb
+// absorption") — replicated here rather than inventing a different
+// threshold, so meal_data behaves the same way upstream's own tooling
+// does with sparse history.
+const MIN_GLUCOSE_POINTS_FOR_COB = 36;
+
+export type PredictionResult =
+  | { status: 'settings-incomplete'; missing: string[] }
+  | { status: 'no-glucose-data' }
+  | {
+      status: 'ok';
+      eventualBG: number | null;
+      reason: string;
+      carbsSuggested: number | null;
+      mdiExcessInsulin: number | null;
+      iob: number;
+      mealCOB: number;
+      currentBasal: number;
+      insufficientGlucoseForCOB: boolean;
+    };
+
+interface RequiredSettings {
+  isf: number;
+  carbRatio: number;
+  targetBG: number;
+  dia: number;
+  maxIOB: number;
+}
+
+export function checkRequiredSettings(settings: Settings): RequiredSettings | string[] {
+  const missing: string[] = [];
+  if (settings.isf == null) missing.push('ISF');
+  if (settings.carbRatio == null) missing.push('carb ratio');
+  if (settings.targetBG == null) missing.push('target BG');
+  if (settings.dia == null) missing.push('DIA');
+  if (settings.maxIOB == null) missing.push('max IOB');
+  if (missing.length > 0) return missing;
+  return {
+    isf: settings.isf!,
+    carbRatio: settings.carbRatio!,
+    targetBG: settings.targetBG!,
+    dia: settings.dia!,
+    maxIOB: settings.maxIOB!,
+  };
+}
+
+// oref0's own shape: {_type, amount, timestamp} for boluses (see
+// lib/oref-vendor/lib/iob/history.js and meal/history.js).
+export function toPumpHistory(treatments: Treatment[]): Array<{ _type: string; amount: number; timestamp: string }> {
+  return treatments
+    .filter((t) => t.insulin != null && t.insulin > 0)
+    .map((t) => ({ _type: 'Bolus', amount: t.insulin!, timestamp: t.createdAt }));
+}
+
+// oref0's own shape: {carbs, created_at} (see lib/oref-vendor/lib/meal/history.js).
+export function toCarbHistory(treatments: Treatment[]): Array<{ carbs: number; created_at: string }> {
+  return treatments
+    .filter((t) => t.carbs != null && t.carbs > 0)
+    .map((t) => ({ carbs: t.carbs!, created_at: t.createdAt }));
+}
+
+// oref0's glucose_data shape needs BOTH `date` (epoch ms — used by the
+// later BGI/deviation loop in cob.js and by glucose-get-last.js) and
+// `dateString` (used by cob.js's own bucketing loop). Newest-first, which
+// both glucose-get-last.js and cob.js assume. Returns fresh objects each
+// call since glucose-get-last.js and cob.js both mutate the objects they
+// receive (e.g. averaging two close-together points) — sharing one array
+// between the two calls would let one contaminate the other.
+export function toGlucoseData(readings: GlucoseReading[]): Array<{ date: number; dateString: string; glucose: number }> {
+  return [...readings]
+    .sort((a, b) => b.date - a.date)
+    .map((r) => ({ date: r.date, dateString: new Date(r.date).toISOString(), glucose: r.sgv }));
+}
+
+export interface ComputePredictionInputs {
+  settings: Settings;
+  glucoseReadings: GlucoseReading[];
+  treatments: Treatment[];
+  basalDoses: BasalDoseRecord[];
+  now: Date;
+}
+
+export function computePrediction({
+  settings,
+  glucoseReadings,
+  treatments,
+  basalDoses,
+  now,
+}: ComputePredictionInputs): PredictionResult {
+  const required = checkRequiredSettings(settings);
+  if (Array.isArray(required)) {
+    return { status: 'settings-incomplete', missing: required };
+  }
+
+  if (glucoseReadings.length === 0) {
+    // Mirrors AndroidAPS's own "no bucketed data available" bail-out
+    // rather than guessing with an empty glucose_status.
+    return { status: 'no-glucose-data' };
+  }
+
+  const currentBasal = currentBasalRate(basalDoses, now);
+  const clock = now.toISOString();
+
+  const profile = {
+    max_iob: required.maxIOB,
+    dia: required.dia,
+    current_basal: currentBasal,
+    sens: required.isf,
+    carb_ratio: required.carbRatio,
+    min_bg: required.targetBG,
+    max_bg: required.targetBG,
+    carbsReqThreshold: CARBS_REQ_THRESHOLD,
+    min_5m_carbimpact: MIN_5M_CARBIMPACT,
+    maxCOB: MAX_COB,
+    isfProfile: { sensitivities: [{ offset: 0, sensitivity: required.isf }] },
+    mdiMode: true,
+  };
+
+  const pumpHistory = toPumpHistory(treatments);
+  const carbHistory = toCarbHistory(treatments);
+  // Inert placeholder for cob.js's internal basalLookup() calls: this app
+  // never logs TempBasal history, so profile.current_basal is only ever
+  // read there for a code path (duration>0 temp-basal splitting) that
+  // never triggers for bolus-only pump history. A non-zero value just
+  // satisfies basalLookup's own "bad basal schedule" guard.
+  const basalProfileForCob = [{ i: 0, start: '00:00:00', minutes: 0, rate: Math.max(currentBasal, 0.001) }];
+
+  const glucoseStatus = getLastGlucose(toGlucoseData(glucoseReadings));
+
+  const iobData = iobGenerate({
+    clock,
+    history: pumpHistory,
+    profile,
+    autosens: { ratio: 1 },
+  });
+
+  const insufficientGlucoseForCOB = glucoseReadings.length < MIN_GLUCOSE_POINTS_FOR_COB;
+  const mealData = generateMealData({
+    history: pumpHistory,
+    profile,
+    basalprofile: basalProfileForCob,
+    clock,
+    carbs: carbHistory,
+    glucose: toGlucoseData(glucoseReadings),
+  });
+  if (insufficientGlucoseForCOB) {
+    // Matches oref0-meal.js's own CLI fallback for the same condition,
+    // rather than trusting a COB estimate built on too little history.
+    mealData.mealCOB = 0;
+  }
+
+  const currenttemp = { duration: 0, rate: 0, temp: 'absolute' };
+  const autosensData = { ratio: 1 };
+
+  const rT = determineBasal(
+    glucoseStatus,
+    currenttemp,
+    iobData,
+    profile,
+    autosensData,
+    mealData,
+    tempBasalFunctions,
+    false, // microBolusAllowed — SMB is a pump-only feature, not applicable to MDI
+    null, // reservoir_data
+    now,
+  );
+
+  if (rT.error) {
+    throw new Error(rT.error);
+  }
+
+  return {
+    status: 'ok',
+    eventualBG: rT.eventualBG ?? null,
+    reason: rT.reason ?? '',
+    carbsSuggested: rT.carbsSuggested ?? null,
+    mdiExcessInsulin: rT.mdiExcessInsulin ?? null,
+    iob: iobData[0]?.iob ?? 0,
+    mealCOB: mealData.mealCOB ?? 0,
+    currentBasal,
+    insufficientGlucoseForCOB,
+  };
+}
