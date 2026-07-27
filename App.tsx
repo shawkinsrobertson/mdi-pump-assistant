@@ -4,6 +4,7 @@ import { BasalDoseModal } from './components/BasalDoseModal';
 import { BleMeterModal } from './components/BleMeterModal';
 import { GlucoseChart } from './components/GlucoseChart';
 import { LogbookModal } from './components/LogbookModal';
+import { PredictionModal } from './components/PredictionModal';
 import { QuickLogModal } from './components/QuickLogModal';
 import { SettingsModal } from './components/SettingsModal';
 import { arrowForDirection, bgColor, formatClockTime, isStale, type GlucoseReading } from './lib/glucose';
@@ -29,6 +30,7 @@ export default function App() {
   const [logbookVisible, setLogbookVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [basalDoseVisible, setBasalDoseVisible] = useState(false);
+  const [predictionVisible, setPredictionVisible] = useState(false);
 
   const fetchReading = useCallback(async () => {
     try {
@@ -129,6 +131,9 @@ export default function App() {
         <Pressable style={styles.actionButton} onPress={() => setBasalDoseVisible(true)}>
           <Text style={styles.actionButtonText}>Log Basal Dose</Text>
         </Pressable>
+        <Pressable style={styles.actionButton} onPress={() => setPredictionVisible(true)}>
+          <Text style={styles.actionButtonText}>Prediction</Text>
+        </Pressable>
       </View>
 
       <BleMeterModal
@@ -145,6 +150,7 @@ export default function App() {
       <LogbookModal visible={logbookVisible} onClose={() => setLogbookVisible(false)} />
       <SettingsModal visible={settingsVisible} onClose={() => setSettingsVisible(false)} />
       <BasalDoseModal visible={basalDoseVisible} onClose={() => setBasalDoseVisible(false)} />
+      <PredictionModal visible={predictionVisible} onClose={() => setPredictionVisible(false)} />
     </View>
   );
 }
