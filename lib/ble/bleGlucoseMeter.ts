@@ -91,6 +91,15 @@ export function monitorLiveReadings(
 const RACP_TIMEOUT_MS = 30_000;
 const GATT_SETTLE_MS = 300; // gives the RACP indication's descriptor write a moment to settle before the command write, same overlapping-GATT-operation reasoning as above
 
+// react-native-ble-plx exposes no bonding API at all. When a write fails
+// because the characteristic needs a bonded/encrypted link, Android's own
+// stack is supposed to auto-trigger bonding and retry the operation
+// internally — but the JS promise here has already rejected by the time
+// that finishes, so the library never sees the eventual success. Waiting
+// and retrying once from JS is the standard workaround for this in the
+// react-native-ble-plx ecosystem.
+const BOND_RETRY_DELAY_MS = 2_000;
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -145,14 +154,23 @@ export function fetchStoredRecords(device: Device): Promise<void> {
       await delay(GATT_SETTLE_MS);
       if (settled) return;
 
-      try {
-        await device.writeCharacteristicWithResponseForService(
+      const writeCommand = () =>
+        device.writeCharacteristicWithResponseForService(
           GLUCOSE_SERVICE_UUID,
           RECORD_ACCESS_CONTROL_POINT_UUID,
           fromByteArray(buildReportAllRecordsCommand()),
         );
-      } catch (error) {
-        finish(() => reject(error));
+
+      try {
+        await writeCommand();
+      } catch (firstError) {
+        await delay(BOND_RETRY_DELAY_MS);
+        if (settled) return;
+        try {
+          await writeCommand();
+        } catch (secondError) {
+          finish(() => reject(secondError));
+        }
       }
     })();
   });

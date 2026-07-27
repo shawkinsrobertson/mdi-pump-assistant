@@ -1,4 +1,4 @@
-import { BleError, BleATTErrorCode, BleErrorCode } from 'react-native-ble-plx';
+import { BleError, BleATTErrorCode, BleAndroidErrorCode, BleErrorCode } from 'react-native-ble-plx';
 
 // Removing a monitor subscription (device.remove()) internally cancels
 // its transaction, which delivers this exact error code back to that
@@ -35,7 +35,21 @@ export function describeBleError(error: unknown): string {
     parts.push(`ATT error code: ${error.attErrorCode}`);
   }
 
-  if (error.androidErrorCode != null) parts.push(`Android error code: ${error.androidErrorCode}`);
+  if (error.androidErrorCode != null) {
+    parts.push(`Android error code: ${error.androidErrorCode}`);
+    if (error.androidErrorCode === BleAndroidErrorCode.InternalError) {
+      // Documented by the library only as "may happen due to implementation
+      // error in BLE stack" — genuinely ambiguous. In practice this has been
+      // seen for bonding-required writes on some Android/vendor BLE stacks
+      // (reported as this generic code instead of a specific auth ATT
+      // error), but it's not certain — hedge accordingly.
+      parts.push(
+        'This is a generic Android BLE stack error — one known cause is the device requiring ' +
+          "a bonded (paired) connection. If it wasn't already paired, try pairing it manually " +
+          'via Android Settings > Bluetooth first, then reconnect here and try again.',
+      );
+    }
+  }
   if (error.reason) parts.push(`Reason: ${error.reason}`);
 
   return parts.join(' ');

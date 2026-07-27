@@ -70,8 +70,29 @@ that specific meter.
   encrypted characteristics — `describeBleError` calls that out
   specifically when `attErrorCode` is `InsufficientAuthentication`/
   `InsufficientEncryption`, which is a different error than the one
-  above. Needs a rebuilt dev client (not just a JS reload) any time a
-  native module changes — see below.
+  above.
+  Follow-up: fixing the subscription churn removed the "operation
+  cancelled" message but NOT the underlying GATT_INTERNAL_ERROR (129,
+  `BleAndroidErrorCode.InternalError`) on the RACP write itself — it's
+  reproducible on-device with no subscription race in the picture
+  anymore. react-native-ble-plx exposes no bonding API at all (checked —
+  nothing in its type defs mentions bonding), so there's no way to
+  explicitly request it or reliably detect it beat us to the punch.
+  `fetchStoredRecords`'s RACP write now retries once after a 2s delay on
+  any failure, on the theory that Android's own auto-bond-and-retry
+  completed just after our promise already rejected (a known
+  react-native-ble-plx limitation/workaround pattern) — this is
+  unverified, since it can't be tested off-device. `describeBleError`
+  also now flags `BleAndroidErrorCode.InternalError` specifically with a
+  hedged note (Android's own doc comment for this code is only "may
+  happen due to implementation error in BLE stack" — genuinely
+  ambiguous) suggesting manual pairing via Android Settings > Bluetooth
+  as a fallback if the retry doesn't help. If this still fails, the next
+  thing to check is whether the meter is actually showing as "paired" in
+  Android's Bluetooth settings at all, independent of anything this app
+  does.
+  Needs a rebuilt dev client (not just a JS reload) any time a native
+  module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
   use, not at module load — its native module doesn't exist outside a
   dev-client/production build, and eager construction at import time
