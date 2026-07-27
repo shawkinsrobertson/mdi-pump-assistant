@@ -80,6 +80,19 @@ export function monitorLiveReadings(
 
 const RACP_TIMEOUT_MS = 30_000;
 
+// Android's BLE stack only tolerates one in-flight GATT operation per
+// connection at a time. monitorCharacteristicForService triggers an
+// async "enable notification/indication" descriptor write under the
+// hood but doesn't expose a promise for it completing — firing the RACP
+// command write in the same tick as two of those (one for the
+// measurement characteristic, one for RACP itself) races the real
+// GATT_INTERNAL_ERROR seen on-device. This delay is the standard,
+// if inelegant, workaround for that class of Android BLE timing bug.
+export const GATT_SETTLE_MS = 300;
+export function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // One-shot fetch of every record the meter has stored (Record Access
 // Control Point: "Report Stored Records" / "All records"). The meter
 // streams matching records as Glucose Measurement notifications, then
@@ -104,44 +117,52 @@ export function fetchStoredRecords(device: Device): Promise<BleGlucoseReading[]>
       finish(() => reject(new Error('Timed out waiting for the meter to report stored records')));
     }, RACP_TIMEOUT_MS);
 
-    measurementSub = device.monitorCharacteristicForService(
-      GLUCOSE_SERVICE_UUID,
-      GLUCOSE_MEASUREMENT_UUID,
-      (error, characteristic) => {
-        if (settled || error || !characteristic?.value) return;
-        const reading = parseGlucoseMeasurement(toByteArray(characteristic.value));
-        if (reading) collected.push(reading);
-      },
-    );
+    (async () => {
+      measurementSub = device.monitorCharacteristicForService(
+        GLUCOSE_SERVICE_UUID,
+        GLUCOSE_MEASUREMENT_UUID,
+        (error, characteristic) => {
+          if (settled || error || !characteristic?.value) return;
+          const reading = parseGlucoseMeasurement(toByteArray(characteristic.value));
+          if (reading) collected.push(reading);
+        },
+      );
+      await delay(GATT_SETTLE_MS);
+      if (settled) return;
 
-    racpSub = device.monitorCharacteristicForService(
-      GLUCOSE_SERVICE_UUID,
-      RECORD_ACCESS_CONTROL_POINT_UUID,
-      (error, characteristic) => {
-        if (settled) return;
-        if (error) {
-          finish(() => reject(error));
-          return;
-        }
-        if (!characteristic?.value) return;
-        const response = parseRacpResponse(toByteArray(characteristic.value));
-        if (
-          response.responseCode === RacpResponseCode.Success ||
-          response.responseCode === RacpResponseCode.NoRecordsFound
-        ) {
-          finish(() => resolve(collected));
-        } else {
-          finish(() => reject(new Error(`Meter reported: ${describeRacpResponseCode(response.responseCode)}`)));
-        }
-      },
-    );
-
-    device
-      .writeCharacteristicWithResponseForService(
+      racpSub = device.monitorCharacteristicForService(
         GLUCOSE_SERVICE_UUID,
         RECORD_ACCESS_CONTROL_POINT_UUID,
-        fromByteArray(buildReportAllRecordsCommand()),
-      )
-      .catch((error) => finish(() => reject(error)));
+        (error, characteristic) => {
+          if (settled) return;
+          if (error) {
+            finish(() => reject(error));
+            return;
+          }
+          if (!characteristic?.value) return;
+          const response = parseRacpResponse(toByteArray(characteristic.value));
+          if (
+            response.responseCode === RacpResponseCode.Success ||
+            response.responseCode === RacpResponseCode.NoRecordsFound
+          ) {
+            finish(() => resolve(collected));
+          } else {
+            finish(() => reject(new Error(`Meter reported: ${describeRacpResponseCode(response.responseCode)}`)));
+          }
+        },
+      );
+      await delay(GATT_SETTLE_MS);
+      if (settled) return;
+
+      try {
+        await device.writeCharacteristicWithResponseForService(
+          GLUCOSE_SERVICE_UUID,
+          RECORD_ACCESS_CONTROL_POINT_UUID,
+          fromByteArray(buildReportAllRecordsCommand()),
+        );
+      } catch (error) {
+        finish(() => reject(error));
+      }
+    })();
   });
 }

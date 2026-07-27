@@ -4,8 +4,10 @@ import type { Device } from 'react-native-ble-plx';
 import {
   bleState,
   connectToMeter,
+  delay,
   disconnectMeter,
   fetchStoredRecords,
+  GATT_SETTLE_MS,
   monitorLiveReadings,
   scanForMeters,
   stopScan,
@@ -130,10 +132,15 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
     // RACP delivers historical records over the same characteristic the
     // live subscription listens on — pause it first so old records don't
     // get misreported as fresh "current" readings (see bleGlucoseMeter.ts).
+    // The removal itself is an async native operation (disabling
+    // notifications) — give it a moment to settle before fetchStoredRecords
+    // re-subscribes to the same characteristic, for the same
+    // overlapping-GATT-operation reason documented there.
     liveSubRef.current?.remove();
     liveSubRef.current = null;
     setStatus('syncing');
     setErrorMessage(null);
+    await delay(GATT_SETTLE_MS);
     try {
       const records = await fetchStoredRecords(connectedDevice);
       setSyncCount(records.length);
