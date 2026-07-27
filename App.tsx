@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { GlucoseChart, type ChartPoint } from './components/GlucoseChart';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BleMeterModal } from './components/BleMeterModal';
+import { GlucoseChart } from './components/GlucoseChart';
 import { arrowForDirection, bgColor, formatClockTime, isStale, type GlucoseReading } from './lib/glucose';
+import { useGlucoseSource } from './lib/useGlucoseSource';
 
-type FetchStatus = 'loading' | 'ok' | 'no-data' | 'error';
+type XdripStatus = 'loading' | 'ok' | 'no-data' | 'error';
 
 // count=144 covers ~2.5h at Libre's ~1/min cadence, or ~12h at a 5-min
 // cadence — either way it's plenty for a short trend graph without
@@ -12,12 +14,15 @@ const CGM_URL = 'http://127.0.0.1:17580/sgv.json?count=144';
 const POLL_INTERVAL_MS = 30_000;
 
 export default function App() {
-  const [current, setCurrent] = useState<GlucoseReading | null>(null);
-  const [history, setHistory] = useState<ChartPoint[]>([]);
-  const [status, setStatus] = useState<FetchStatus>('loading');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Shared "current BG" + history, fed by both xDrip+ polling and any
+  // connected Bluetooth meter — see lib/useGlucoseSource.ts. Neither
+  // source keeps its own parallel state.
+  const { current, history, reportReading, replaceSource } = useGlucoseSource();
+  const [xdripStatus, setXdripStatus] = useState<XdripStatus>('loading');
+  const [xdripError, setXdripError] = useState<string | null>(null);
+  const [bleModalVisible, setBleModalVisible] = useState(false);
 
-  async function fetchReading() {
+  const fetchReading = useCallback(async () => {
     try {
       const response = await fetch(CGM_URL);
       if (!response.ok) {
@@ -25,39 +30,40 @@ export default function App() {
       }
       const data: unknown = await response.json();
       if (!Array.isArray(data) || data.length === 0) {
-        setCurrent(null);
-        setHistory([]);
-        setStatus('no-data');
+        replaceSource('xdrip', []);
+        setXdripStatus('no-data');
         return;
       }
-      const readings = data as GlucoseReading[];
-      setCurrent(readings[0]); // xDrip+ returns newest-first
-      setHistory(
-        readings
-          .map((r) => ({ time: r.date, sgv: r.sgv }))
-          .reverse(), // oldest → newest, for left-to-right plotting
-      );
-      setStatus('ok');
+      replaceSource('xdrip', data as GlucoseReading[]);
+      setXdripStatus('ok');
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setErrorMessage(msg);
-      setStatus('error');
+      setXdripError(e instanceof Error ? e.message : String(e));
+      setXdripStatus('error');
     }
-  }
+  }, [replaceSource]);
 
   useEffect(() => {
     fetchReading();
     const timer = setInterval(fetchReading, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [fetchReading]);
+
+  const handleBleLiveReading = useCallback(
+    (reading: GlucoseReading) => reportReading('ble', reading),
+    [reportReading],
+  );
+  const handleBleHistorySync = useCallback(
+    (readings: GlucoseReading[]) => replaceSource('ble', readings),
+    [replaceSource],
+  );
 
   return (
     <View style={styles.container}>
       <Text style={styles.label}>CGM — xDrip+</Text>
 
-      {status === 'loading' && <ActivityIndicator size="large" color="#333" />}
+      {current === null && xdripStatus === 'loading' && <ActivityIndicator size="large" color="#333" />}
 
-      {status === 'ok' && current !== null && (
+      {current !== null && (
         <>
           <View style={styles.headerRow}>
             <Text style={[styles.glucose, { color: bgColor(current.sgv) }]}>{current.sgv}</Text>
@@ -75,12 +81,14 @@ export default function App() {
         </>
       )}
 
-      {status === 'no-data' && <Text style={styles.message}>No recent CGM data from xDrip+.</Text>}
+      {current === null && xdripStatus === 'no-data' && (
+        <Text style={styles.message}>No recent CGM data from xDrip+.</Text>
+      )}
 
-      {status === 'error' && (
+      {current === null && xdripStatus === 'error' && (
         <>
           <Text style={styles.error}>Failed to reach xDrip+</Text>
-          <Text style={styles.errorDetail}>{errorMessage}</Text>
+          <Text style={styles.errorDetail}>{xdripError}</Text>
           <Text style={styles.hint}>
             If this URL works in the phone browser but not here, check that
             usesCleartextTraffic is enabled in app.json and rebuild the dev
@@ -88,6 +96,21 @@ export default function App() {
           </Text>
         </>
       )}
+
+      {current !== null && xdripStatus === 'error' && (
+        <Text style={styles.xdripNote}>xDrip+ poll failing: {xdripError}</Text>
+      )}
+
+      <Pressable style={styles.bleButton} onPress={() => setBleModalVisible(true)}>
+        <Text style={styles.bleButtonText}>Connect meter</Text>
+      </Pressable>
+
+      <BleMeterModal
+        visible={bleModalVisible}
+        onClose={() => setBleModalVisible(false)}
+        onLiveReading={handleBleLiveReading}
+        onHistorySync={handleBleHistorySync}
+      />
     </View>
   );
 }
@@ -173,5 +196,22 @@ const styles = StyleSheet.create({
     color: '#888',
     textAlign: 'center',
     lineHeight: 18,
+  },
+  xdripNote: {
+    fontSize: 12,
+    color: '#c00',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  bleButton: {
+    marginTop: 20,
+    backgroundColor: '#111',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  bleButtonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
 });

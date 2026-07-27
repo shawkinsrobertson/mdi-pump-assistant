@@ -28,6 +28,14 @@
             "usesCleartextTraffic": true
           }
         }
+      ],
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "neverForLocation": true,
+          "bluetoothAlwaysPermission": "Allow $(PRODUCT_NAME) to connect to your Bluetooth glucose meter"
+        }
       ]
     ],
     "web": {
