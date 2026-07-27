@@ -1,8 +1,14 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChartPoint } from '../components/GlucoseChart';
+import { getReadingsSinceWithSource, insertReadings } from './db/glucoseReadings';
 import type { GlucoseReading } from './glucose';
 
 const MAX_HISTORY_POINTS = 500;
+
+// How far back to hydrate from the local DB on mount. Matches the
+// retention window in lib/db/glucoseReadings.ts — there's nothing older
+// than this persisted anyway.
+const HYDRATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // Single shared "current BG" + history state, fed by any number of
 // sources (xDrip+ polling, a Bluetooth meter, …) instead of each source
@@ -11,6 +17,12 @@ const MAX_HISTORY_POINTS = 500;
 // its own timestamp, not whichever source last reported — so a stale
 // background poll can never clobber a fresher reading from another
 // source, or vice versa.
+//
+// Every reading is also durably persisted (lib/db/glucoseReadings.ts) and
+// the map is hydrated from that store on mount, so a restart doesn't lose
+// history the oref0 orchestration's COB detection depends on — the same
+// requirement AndroidAPS solves by persisting every received CGM value
+// rather than keeping it in memory only.
 export function useGlucoseSource() {
   const [current, setCurrent] = useState<GlucoseReading | null>(null);
   const [history, setHistory] = useState<ChartPoint[]>([]);
@@ -23,12 +35,34 @@ export function useGlucoseSource() {
     setCurrent(trimmed.length > 0 ? trimmed[trimmed.length - 1] : null);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    getReadingsSinceWithSource(Date.now() - HYDRATE_WINDOW_MS)
+      .then((rows) => {
+        if (cancelled) return;
+        // Rebuild the same "source:id" map key reportReading/replaceSource
+        // use, so a later live update from that same source naturally
+        // overwrites its own hydrated entry instead of duplicating it.
+        for (const { source, reading } of rows) {
+          byId.current.set(`${source}:${reading._id}`, reading);
+        }
+        commit();
+      })
+      .catch((e) => console.error('Failed to hydrate glucose history from DB:', e));
+    return () => {
+      cancelled = true;
+    };
+  }, [commit]);
+
   // For a one-off reading (e.g. a live Bluetooth meter notification).
   // sourceKey namespaces the id so different sources can never collide.
   const reportReading = useCallback(
     (sourceKey: string, reading: GlucoseReading) => {
       byId.current.set(`${sourceKey}:${reading._id}`, reading);
       commit();
+      insertReadings(sourceKey, [reading]).catch((e) =>
+        console.error('Failed to persist glucose reading:', e),
+      );
     },
     [commit],
   );
@@ -45,6 +79,9 @@ export function useGlucoseSource() {
       }
       for (const r of readings) byId.current.set(`${prefix}${r._id}`, r);
       commit();
+      insertReadings(sourceKey, readings).catch((e) =>
+        console.error('Failed to persist glucose readings:', e),
+      );
     },
     [commit],
   );

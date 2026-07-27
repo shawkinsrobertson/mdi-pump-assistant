@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { getRecentBasalDoses, type BasalDoseRecord } from '../lib/db/basalDoses';
 import { getRecentTreatments, type Treatment } from '../lib/db/treatments';
 
 interface LogbookModalProps {
@@ -9,17 +10,31 @@ interface LogbookModalProps {
 
 const RECENT_COUNT = 50;
 
+type LogEntry = { kind: 'treatment'; treatment: Treatment } | { kind: 'basal'; dose: BasalDoseRecord };
+
+function mergeEntries(treatments: Treatment[], basalDoses: BasalDoseRecord[]): LogEntry[] {
+  const entries: LogEntry[] = [
+    ...treatments.map((treatment): LogEntry => ({ kind: 'treatment', treatment })),
+    ...basalDoses.map((dose): LogEntry => ({ kind: 'basal', dose })),
+  ];
+  const timeOf = (e: LogEntry) => (e.kind === 'treatment' ? e.treatment.createdAt : e.dose.injectedAt);
+  return entries.sort((a, b) => timeOf(b).localeCompare(timeOf(a)));
+}
+
 export function LogbookModal({ visible, onClose }: LogbookModalProps) {
   const [treatments, setTreatments] = useState<Treatment[] | null>(null);
+  const [basalDoses, setBasalDoses] = useState<BasalDoseRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
     setError(null);
-    getRecentTreatments(RECENT_COUNT)
-      .then((rows) => {
-        if (!cancelled) setTreatments(rows);
+    Promise.all([getRecentTreatments(RECENT_COUNT), getRecentBasalDoses(RECENT_COUNT)])
+      .then(([treatmentRows, basalDoseRows]) => {
+        if (cancelled) return;
+        setTreatments(treatmentRows);
+        setBasalDoses(basalDoseRows);
       })
       .catch((e) => {
         if (cancelled) return;
@@ -35,26 +50,38 @@ export function LogbookModal({ visible, onClose }: LogbookModalProps) {
       <View style={styles.container}>
         <Text style={styles.title}>Logbook</Text>
 
-        {error && <Text style={styles.error}>Couldn't load treatments: {error}</Text>}
-        {!error && treatments === null && <Text style={styles.message}>Loading…</Text>}
-        {!error && treatments?.length === 0 && <Text style={styles.message}>No treatments logged yet.</Text>}
+        {error && <Text style={styles.error}>Couldn't load entries: {error}</Text>}
+        {!error && (treatments === null || basalDoses === null) && <Text style={styles.message}>Loading…</Text>}
+        {!error && treatments?.length === 0 && basalDoses?.length === 0 && (
+          <Text style={styles.message}>Nothing logged yet.</Text>
+        )}
 
         <FlatList
-          data={treatments ?? []}
-          keyExtractor={(t) => t.id.toString()}
-          renderItem={({ item }) => (
-            <View style={styles.row}>
-              <View style={styles.rowHeader}>
-                <Text style={styles.eventType}>{item.eventType}</Text>
-                <Text style={styles.time}>{new Date(item.createdAt).toLocaleString()}</Text>
+          data={mergeEntries(treatments ?? [], basalDoses ?? [])}
+          keyExtractor={(e) => `${e.kind}:${e.kind === 'treatment' ? e.treatment.id : e.dose.id}`}
+          renderItem={({ item }) =>
+            item.kind === 'treatment' ? (
+              <View style={styles.row}>
+                <View style={styles.rowHeader}>
+                  <Text style={styles.eventType}>{item.treatment.eventType}</Text>
+                  <Text style={styles.time}>{new Date(item.treatment.createdAt).toLocaleString()}</Text>
+                </View>
+                <Text style={styles.detail}>
+                  {item.treatment.insulin != null ? `${item.treatment.insulin} U` : null}
+                  {item.treatment.insulin != null && item.treatment.carbs != null ? ' · ' : null}
+                  {item.treatment.carbs != null ? `${item.treatment.carbs} g carbs` : null}
+                </Text>
               </View>
-              <Text style={styles.detail}>
-                {item.insulin != null ? `${item.insulin} U` : null}
-                {item.insulin != null && item.carbs != null ? ' · ' : null}
-                {item.carbs != null ? `${item.carbs} g carbs` : null}
-              </Text>
-            </View>
-          )}
+            ) : (
+              <View style={styles.row}>
+                <View style={styles.rowHeader}>
+                  <Text style={styles.eventType}>Basal — {item.dose.type}</Text>
+                  <Text style={styles.time}>{new Date(item.dose.injectedAt).toLocaleString()}</Text>
+                </View>
+                <Text style={styles.detail}>{item.dose.units} U</Text>
+              </View>
+            )
+          }
         />
 
         <Pressable style={styles.button} onPress={onClose}>

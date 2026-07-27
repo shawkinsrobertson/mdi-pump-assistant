@@ -11,6 +11,11 @@ export interface Settings {
   targetBG: number | null;
   dia: number | null; // hours
   penIncrement: number; // units
+  // Max insulin-on-board oref0's determine-basal is allowed to reason
+  // about (profile.max_iob) — a personal safety cap, not an algorithm
+  // tuning constant, so it ships null/required like the clinical fields
+  // above rather than inheriting one of oref0's own defaults.
+  maxIOB: number | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -19,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   targetBG: null,
   dia: null,
   penIncrement: 1,
+  maxIOB: null,
 };
 
 const STORAGE_KEY = 'app-settings';

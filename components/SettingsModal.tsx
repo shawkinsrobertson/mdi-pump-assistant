@@ -20,6 +20,7 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
   const [targetBG, setTargetBG] = useState('');
   const [dia, setDia] = useState('');
   const [penIncrement, setPenIncrement] = useState('1');
+  const [maxIOB, setMaxIOB] = useState('');
 
   useEffect(() => {
     if (!loaded) return;
@@ -28,6 +29,7 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
     setTargetBG(settings.targetBG?.toString() ?? '');
     setDia(settings.dia?.toString() ?? '');
     setPenIncrement(settings.penIncrement.toString());
+    setMaxIOB(settings.maxIOB?.toString() ?? '');
   }, [loaded, settings]);
 
   const handleSave = () => {
@@ -37,6 +39,7 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
       targetBG: numOrNull(targetBG),
       dia: numOrNull(dia),
       penIncrement: numOrNull(penIncrement) ?? 1,
+      maxIOB: numOrNull(maxIOB),
     });
     onClose();
   };
@@ -54,6 +57,11 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
         <Field label="Target BG (mg/dL)" value={targetBG} onChangeText={setTargetBG} />
         <Field label="DIA — duration of insulin action (hours)" value={dia} onChangeText={setDia} />
         <Field label="Pen increment (units, e.g. 1 or 0.5)" value={penIncrement} onChangeText={setPenIncrement} />
+        <Field
+          label="Max IOB (units) — insulin-on-board safety cap for predictions"
+          value={maxIOB}
+          onChangeText={setMaxIOB}
+        />
 
         <Pressable style={styles.button} onPress={handleSave}>
           <Text style={styles.buttonText}>Save</Text>

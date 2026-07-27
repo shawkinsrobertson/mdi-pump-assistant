@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BasalDoseModal } from './components/BasalDoseModal';
 import { BleMeterModal } from './components/BleMeterModal';
 import { GlucoseChart } from './components/GlucoseChart';
 import { LogbookModal } from './components/LogbookModal';
@@ -27,6 +28,7 @@ export default function App() {
   const [quickLogVisible, setQuickLogVisible] = useState(false);
   const [logbookVisible, setLogbookVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [basalDoseVisible, setBasalDoseVisible] = useState(false);
 
   const fetchReading = useCallback(async () => {
     try {
@@ -123,6 +125,11 @@ export default function App() {
           <Text style={styles.actionButtonText}>Settings</Text>
         </Pressable>
       </View>
+      <View style={styles.actionsRow}>
+        <Pressable style={styles.actionButton} onPress={() => setBasalDoseVisible(true)}>
+          <Text style={styles.actionButtonText}>Log Basal Dose</Text>
+        </Pressable>
+      </View>
 
       <BleMeterModal
         visible={bleModalVisible}
@@ -137,6 +144,7 @@ export default function App() {
       />
       <LogbookModal visible={logbookVisible} onClose={() => setLogbookVisible(false)} />
       <SettingsModal visible={settingsVisible} onClose={() => setSettingsVisible(false)} />
+      <BasalDoseModal visible={basalDoseVisible} onClose={() => setBasalDoseVisible(false)} />
     </View>
   );
 }
