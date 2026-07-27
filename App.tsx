@@ -1,26 +1,19 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-
-// Matches the sgv.json reading object emitted by xDrip+'s local web server
-// (Nightscout-compatible; the same shape Juggluco emits, so this also works
-// as a drop-in fallback source without code changes).
-interface GlucoseReading {
-  sgv: number;
-  date: number; // epoch ms — the only reliable staleness signal
-  dateString: string;
-  delta: number;
-  direction: string;
-  noise: number;
-  _id: string;
-}
+import { GlucoseChart, type ChartPoint } from './components/GlucoseChart';
+import { arrowForDirection, bgColor, formatClockTime, isStale, type GlucoseReading } from './lib/glucose';
 
 type FetchStatus = 'loading' | 'ok' | 'no-data' | 'error';
 
-const CGM_URL = 'http://127.0.0.1:17580/sgv.json?count=1';
+// count=144 covers ~2.5h at Libre's ~1/min cadence, or ~12h at a 5-min
+// cadence — either way it's plenty for a short trend graph without
+// hammering xDrip+'s local server.
+const CGM_URL = 'http://127.0.0.1:17580/sgv.json?count=144';
 const POLL_INTERVAL_MS = 30_000;
 
 export default function App() {
-  const [reading, setReading] = useState<GlucoseReading | null>(null);
+  const [current, setCurrent] = useState<GlucoseReading | null>(null);
+  const [history, setHistory] = useState<ChartPoint[]>([]);
   const [status, setStatus] = useState<FetchStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -32,11 +25,18 @@ export default function App() {
       }
       const data: unknown = await response.json();
       if (!Array.isArray(data) || data.length === 0) {
-        setReading(null);
+        setCurrent(null);
+        setHistory([]);
         setStatus('no-data');
         return;
       }
-      setReading(data[0] as GlucoseReading);
+      const readings = data as GlucoseReading[];
+      setCurrent(readings[0]); // xDrip+ returns newest-first
+      setHistory(
+        readings
+          .map((r) => ({ time: r.date, sgv: r.sgv }))
+          .reverse(), // oldest → newest, for left-to-right plotting
+      );
       setStatus('ok');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -57,18 +57,25 @@ export default function App() {
 
       {status === 'loading' && <ActivityIndicator size="large" color="#333" />}
 
-      {status === 'ok' && reading !== null && (
+      {status === 'ok' && current !== null && (
         <>
-          <Text style={styles.glucose}>{reading.sgv}</Text>
+          <View style={styles.headerRow}>
+            <Text style={[styles.glucose, { color: bgColor(current.sgv) }]}>{current.sgv}</Text>
+            <Text style={styles.arrow}>{arrowForDirection(current.direction)}</Text>
+          </View>
           <Text style={styles.unit}>mg/dL</Text>
-          <Text style={styles.detail}>Trend: {reading.direction}</Text>
-          <Text style={styles.detail}>{reading.dateString}</Text>
+          <View style={styles.statusRow}>
+            <Text style={styles.detail}>{formatClockTime(current.date)}</Text>
+            {isStale(current) && <Text style={styles.staleBadge}>STALE</Text>}
+          </View>
+
+          <View style={styles.chartWrap}>
+            <GlucoseChart history={history} />
+          </View>
         </>
       )}
 
-      {status === 'no-data' && (
-        <Text style={styles.message}>No recent CGM data from xDrip+.</Text>
-      )}
+      {status === 'no-data' && <Text style={styles.message}>No recent CGM data from xDrip+.</Text>}
 
       {status === 'error' && (
         <>
@@ -100,20 +107,49 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
   glucose: {
     fontSize: 96,
     fontWeight: 'bold',
+  },
+  arrow: {
+    fontSize: 40,
+    fontWeight: '600',
     color: '#111',
+    marginTop: 16,
   },
   unit: {
     fontSize: 20,
     color: '#555',
     marginBottom: 12,
   },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
   detail: {
     fontSize: 16,
     color: '#555',
-    marginTop: 4,
+  },
+  staleBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#dc2626',
+    borderWidth: 1,
+    borderColor: '#dc2626',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    letterSpacing: 0.5,
+  },
+  chartWrap: {
+    width: '100%',
   },
   message: {
     fontSize: 18,
