@@ -1,9 +1,9 @@
 # mdi-pump-assistant
 
 Native Expo (React Native + TypeScript) app that reads live CGM data from
-xDrip+'s local Nightscout-compatible web server, on-device, and (optionally)
-readings from a standard Bluetooth glucose meter — no Nightscout, no cloud
-roundtrip.
+xDrip+'s local Nightscout-compatible web server and/or a Bluetooth glucose
+meter, logs treatments to a local SQLite database, and suggests bolus doses
+from user-entered settings — no Nightscout, no cloud roundtrip.
 
 ## CGM integration (xDrip+)
 
@@ -47,7 +47,8 @@ that specific meter.
   connection to read the Glucose Measurement/RACP characteristics.
   Android's own pairing dialog should trigger automatically on first
   access; if it doesn't, that shows up as a connection/read error in the
-  modal rather than failing silently.
+  modal rather than failing silently. Needs a rebuilt dev client (not just
+  a JS reload) any time a native module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
   use, not at module load — its native module doesn't exist outside a
   dev-client/production build, and eager construction at import time
@@ -55,6 +56,61 @@ that specific meter.
   preview during development). Watch for this if refactoring
   `lib/ble/bleGlucoseMeter.ts` or `BleMeterModal.tsx`: any effect that
   unconditionally calls a BLE function on mount reintroduces the crash.
+
+## Local treatment database
+
+- `lib/db/treatments.ts` — expo-sqlite, one `treatments` table
+  (event_type, insulin, carbs, created_at, and an unused `synced` column
+  reserved for a future cloud-sync phase). `openDatabaseSync` is called
+  lazily on first use, same reasoning as `BleManager` above.
+- `insertTreatment`, `getRecentTreatments(count)`, and
+  `getTreatmentsSince(timestamp)` — the last one exists specifically
+  because IOB math needs "everything in the last DIA hours," not just
+  "the most recent N rows."
+- Dedup at write time: `insertTreatment` rejects (throws
+  `DuplicateTreatmentError`) a treatment matching an existing row's
+  event_type/insulin/carbs within the same whole second, so a double-tap
+  or UI retry can't silently double-log a dose.
+- Verified independently: the schema DDL and the dedup/time-window SQL
+  were sanity-checked against Node's built-in `node:sqlite` module (same
+  SQL, different JS wrapper) since expo-sqlite itself only runs natively.
+  Actual on-device behavior via the real expo-sqlite binding is still
+  unverified.
+
+## Bolus wizard, IOB, and settings
+
+- `lib/settings.ts` — AsyncStorage-backed settings (isf, carbRatio,
+  targetBG, dia, penIncrement). The clinical values (isf/carbRatio/
+  targetBG/dia) ship `null`, never a "typical" default — the wizard
+  refuses to compute a suggestion until the user fills them in.
+  penIncrement defaults to 1 (a rounding convenience, not a clinical
+  value) and is user-editable in Settings.
+  Multiple modals each hold their own `useSettings()` instance; there's
+  no `window` to dispatch a change event from like the web app used, so
+  `writeSettings` notifies a module-level listener set instead — don't
+  remove that when touching this file, or Quick Log stops seeing
+  Settings changes made while it's already mounted.
+- `lib/bolus.ts` — `computeBolusWizard` (meal dose + correction − IOB,
+  clamped to ≥0, rounded to the pen increment), ported from the web
+  dashboard. Pure function, hand-verified with test vectors (mealDose,
+  correction clamping when BG is below target, suggestion clamping when
+  IOB exceeds meal+correction).
+- `lib/iob.ts` — **placeholder linear-decay IOB model**, explicitly not
+  the industry-standard exponential curve. mdi-logger's own brief flags
+  "IOB model: exponential vs linear" as a decision to confirm with the
+  human rather than silently pick — linear was chosen for now because
+  it's the easiest to audit by hand. Revisit before relying on this for
+  real dosing decisions.
+- `components/QuickLogModal.tsx` — the bolus wizard UI. Meal/Correction
+  toggle (not auto-inferred from carbs/insulin presence — matches the
+  same UX decision made for the web app's dashboard panel). Refuses to
+  show a computed suggestion (shows a manual-entry-only state instead) if
+  IOB couldn't be loaded, rather than silently treating a failed query as
+  "no insulin on board" — a real gap that was caught and fixed during
+  development, not a hypothetical.
+- `components/LogbookModal.tsx` — read-only, `getRecentTreatments`. No
+  edit/delete yet (matches scope as asked; mdi-logger's product overview
+  eventually wants editable/deletable entries, not built here).
 
 ## Shared glucose state
 
@@ -64,16 +120,39 @@ by both xDrip+ polling and the Bluetooth meter via namespaced source keys
 `replaceSource('ble', …)` for a history sync) — deliberately not two
 parallel BG states that the UI has to reconcile. "Current" is always
 whichever known reading is newest by its own timestamp, regardless of
-which source last reported.
+which source last reported. `QuickLogModal` reads `currentBG` from this
+same shared state rather than fetching its own snapshot.
+
+## Verification notes for future sessions
+
+This environment has no physical device or emulator, so:
+- BLE and SQLite behavior can only be verified indirectly: pure logic
+  (SFLOAT decode, bolus math, IOB decay) via a throwaway `tsx` script
+  against hand-computed test vectors; SQL correctness via Node's built-in
+  `node:sqlite`; UI rendering and error-state handling via
+  `expo start --web` + Playwright with mocked data (this reliably catches
+  import-time crashes and unhandled-rejection bugs — it caught three real
+  ones: eager `BleManager` construction, an effect that touched BLE
+  unconditionally on mount, and two missing `.catch()` handlers on DB
+  reads that would otherwise hang the UI or silently zero out IOB).
+- expo-sqlite does not work in that web preview (no SharedArrayBuffer /
+  cross-origin isolation in this setup) — DB insert/read correctness on
+  the actual native binding is unverified and needs on-device testing.
+- Any new native dependency requires a full dev-client rebuild
+  (`npx expo prebuild --clean` then `expo run:android` or an EAS dev
+  build) — a `git pull` + JS reload is not enough, and produces a
+  "Cannot read properties of null (reading '<method>')" style error at
+  the point the missing native module is first used.
 
 ## Status
 
-Live CGM + Bluetooth meter ingestion and the trend graph are working.
-Bolus wizard math, settings, treatment logging, and any local DB are
-intentionally not wired in yet.
+Live CGM + Bluetooth meter ingestion, the trend graph, local treatment
+storage, and the bolus wizard are all implemented. Not done yet: edit/
+delete on logged treatments, COB, and the exponential IOB model (current
+model is an explicitly-flagged linear placeholder).
 
-- The bolus wizard math and settings pattern to port in next live in
-  `shawkinsrobertson/shelbyai-diabetes-assistant` (web dashboard).
+- `shawkinsrobertson/shelbyai-diabetes-assistant` is the web dashboard
+  this app's bolus wizard and Quick Log UX were ported from.
 - `shawkinsrobertson/mdi-logger` is a prior CGM-only spike this project
-  supersedes; its polling client and cleartext-HTTP fix were the reference
-  for this app's first CGM screen.
+  supersedes; its polling client and cleartext-HTTP fix were the
+  reference for this app's first CGM screen.

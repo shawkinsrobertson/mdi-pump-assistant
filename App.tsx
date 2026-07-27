@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { BleMeterModal } from './components/BleMeterModal';
 import { GlucoseChart } from './components/GlucoseChart';
+import { LogbookModal } from './components/LogbookModal';
+import { QuickLogModal } from './components/QuickLogModal';
+import { SettingsModal } from './components/SettingsModal';
 import { arrowForDirection, bgColor, formatClockTime, isStale, type GlucoseReading } from './lib/glucose';
 import { useGlucoseSource } from './lib/useGlucoseSource';
 
@@ -21,6 +24,9 @@ export default function App() {
   const [xdripStatus, setXdripStatus] = useState<XdripStatus>('loading');
   const [xdripError, setXdripError] = useState<string | null>(null);
   const [bleModalVisible, setBleModalVisible] = useState(false);
+  const [quickLogVisible, setQuickLogVisible] = useState(false);
+  const [logbookVisible, setLogbookVisible] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
 
   const fetchReading = useCallback(async () => {
     try {
@@ -101,9 +107,22 @@ export default function App() {
         <Text style={styles.xdripNote}>xDrip+ poll failing: {xdripError}</Text>
       )}
 
-      <Pressable style={styles.bleButton} onPress={() => setBleModalVisible(true)}>
-        <Text style={styles.bleButtonText}>Connect meter</Text>
-      </Pressable>
+      <View style={styles.actionsRow}>
+        <Pressable style={styles.actionButton} onPress={() => setQuickLogVisible(true)}>
+          <Text style={styles.actionButtonText}>Quick Log</Text>
+        </Pressable>
+        <Pressable style={styles.actionButton} onPress={() => setLogbookVisible(true)}>
+          <Text style={styles.actionButtonText}>Logbook</Text>
+        </Pressable>
+      </View>
+      <View style={styles.actionsRow}>
+        <Pressable style={styles.actionButton} onPress={() => setBleModalVisible(true)}>
+          <Text style={styles.actionButtonText}>Connect meter</Text>
+        </Pressable>
+        <Pressable style={styles.actionButton} onPress={() => setSettingsVisible(true)}>
+          <Text style={styles.actionButtonText}>Settings</Text>
+        </Pressable>
+      </View>
 
       <BleMeterModal
         visible={bleModalVisible}
@@ -111,6 +130,13 @@ export default function App() {
         onLiveReading={handleBleLiveReading}
         onHistorySync={handleBleHistorySync}
       />
+      <QuickLogModal
+        visible={quickLogVisible}
+        onClose={() => setQuickLogVisible(false)}
+        currentBG={current?.sgv ?? null}
+      />
+      <LogbookModal visible={logbookVisible} onClose={() => setLogbookVisible(false)} />
+      <SettingsModal visible={settingsVisible} onClose={() => setSettingsVisible(false)} />
     </View>
   );
 }
@@ -203,14 +229,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
-  bleButton: {
-    marginTop: 20,
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  actionButton: {
     backgroundColor: '#111',
     borderRadius: 8,
     paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
   },
-  bleButtonText: {
+  actionButtonText: {
     color: '#fff',
     fontWeight: '600',
   },
