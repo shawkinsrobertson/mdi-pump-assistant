@@ -43,12 +43,35 @@ that specific meter.
   scan results.
 - `components/BleMeterModal.tsx` — scan/connect/sync UI, opened from a
   "Connect meter" button on the main screen (no navigation library yet).
-- Known device quirk: the Contour Next One requires a bonded (paired)
-  connection to read the Glucose Measurement/RACP characteristics.
-  Android's own pairing dialog should trigger automatically on first
-  access; if it doesn't, that shows up as a connection/read error in the
-  modal rather than failing silently. Needs a rebuilt dev client (not just
-  a JS reload) any time a native module changes — see below.
+- Real on-device bug found and fixed: RACP sync (`fetchStoredRecords`)
+  originally tore down the live measurement subscription and created a
+  fresh one for the sync, then wrote the RACP command in the same tick.
+  On the actual Contour Next One this produced Android error 129
+  (`GATT_INTERNAL_ERROR`) — Android's BLE stack only tolerates one
+  in-flight GATT operation per connection, and both the subscription
+  teardown/recreation and the immediate write raced each other. Fixed by
+  never tearing down the measurement subscription: `monitorLiveReadings`
+  is established once per connection and lives for its whole lifetime;
+  during a sync, `BleMeterModal` redirects its readings into a temporary
+  buffer via a ref instead of removing/recreating the subscription.
+  `fetchStoredRecords` itself only manages the RACP characteristic now
+  (a monitor + a delay + the command write, still with a settle delay
+  since RACP's own descriptor write and the command write are two
+  separate operations on the same connection).
+  A second, related bug this surfaced: removing a monitor subscription
+  cancels its transaction, which delivers `BleErrorCode.OperationCancelled`
+  ("Operation was cancelled") back to that same subscription's error
+  callback — expected on intentional teardown (disconnect/cleanup), not a
+  real failure. `lib/ble/errors.ts`'s `isOperationCancelledError` filters
+  this out; without it, the old remove-then-recreate flow surfaced a
+  confusing "Operation was cancelled" message on every sync attempt,
+  which is what actually got reported and led to this fix.
+  Still true: the Contour Next One needs a bonded (paired) connection for
+  encrypted characteristics — `describeBleError` calls that out
+  specifically when `attErrorCode` is `InsufficientAuthentication`/
+  `InsufficientEncryption`, which is a different error than the one
+  above. Needs a rebuilt dev client (not just a JS reload) any time a
+  native module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
   use, not at module load — its native module doesn't exist outside a
   dev-client/production build, and eager construction at import time

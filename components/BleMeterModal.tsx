@@ -4,10 +4,8 @@ import type { Device } from 'react-native-ble-plx';
 import {
   bleState,
   connectToMeter,
-  delay,
   disconnectMeter,
   fetchStoredRecords,
-  GATT_SETTLE_MS,
   monitorLiveReadings,
   scanForMeters,
   stopScan,
@@ -42,6 +40,13 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
   const [syncCount, setSyncCount] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const liveSubRef = useRef<{ remove(): void } | null>(null);
+  // While a sync is running, the single persistent measurement
+  // subscription's readings get redirected here instead of treated as
+  // "live" — see monitorLiveReadings/fetchStoredRecords in
+  // bleGlucoseMeter.ts for why that subscription is never torn down and
+  // recreated around a sync.
+  const isSyncingRef = useRef(false);
+  const syncBufferRef = useRef<BleGlucoseReading[]>([]);
 
   // Scanning is tied to the modal being open. Live monitoring is tied to
   // being connected, not to modal visibility — closing this modal while
@@ -112,6 +117,10 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
         liveSubRef.current = monitorLiveReadings(
           connected,
           (reading) => {
+            if (isSyncingRef.current) {
+              syncBufferRef.current.push(reading);
+              return;
+            }
             setLastReading(reading);
             onLiveReading(reading);
           },
@@ -129,37 +138,26 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
 
   const handleSyncHistory = useCallback(async () => {
     if (!connectedDevice) return;
-    // RACP delivers historical records over the same characteristic the
-    // live subscription listens on — pause it first so old records don't
-    // get misreported as fresh "current" readings (see bleGlucoseMeter.ts).
-    // The removal itself is an async native operation (disabling
-    // notifications) — give it a moment to settle before fetchStoredRecords
-    // re-subscribes to the same characteristic, for the same
-    // overlapping-GATT-operation reason documented there.
-    liveSubRef.current?.remove();
-    liveSubRef.current = null;
+    // Redirect the persistent measurement subscription's readings into a
+    // buffer instead of treating them as live, for the duration of the
+    // RACP fetch — no subscription is torn down or recreated here.
+    isSyncingRef.current = true;
+    syncBufferRef.current = [];
     setStatus('syncing');
     setErrorMessage(null);
-    await delay(GATT_SETTLE_MS);
     try {
-      const records = await fetchStoredRecords(connectedDevice);
+      await fetchStoredRecords(connectedDevice);
+      const records = syncBufferRef.current;
       setSyncCount(records.length);
       onHistorySync(records);
       setStatus('connected');
     } catch (error) {
       setErrorMessage(describeBleError(error));
     } finally {
-      liveSubRef.current = monitorLiveReadings(
-        connectedDevice,
-        (reading) => {
-          setLastReading(reading);
-          onLiveReading(reading);
-        },
-        (error) => setErrorMessage(describeBleError(error)),
-      );
+      isSyncingRef.current = false;
       if (status !== 'error') setStatus('connected');
     }
-  }, [connectedDevice, onHistorySync, onLiveReading, status]);
+  }, [connectedDevice, onHistorySync, status]);
 
   const handleDisconnect = useCallback(async () => {
     liveSubRef.current?.remove();

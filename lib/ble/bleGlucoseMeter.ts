@@ -1,5 +1,6 @@
 import { fromByteArray, toByteArray } from 'base64-js';
 import { BleManager, type Device, type State } from 'react-native-ble-plx';
+import { isOperationCancelledError } from './errors';
 import { GLUCOSE_MEASUREMENT_UUID, GLUCOSE_SERVICE_UUID, RECORD_ACCESS_CONTROL_POINT_UUID } from './gatt';
 import { parseGlucoseMeasurement, type BleGlucoseReading } from './parseGlucoseMeasurement';
 import { buildReportAllRecordsCommand, describeRacpResponseCode, parseRacpResponse, RacpResponseCode } from './racp';
@@ -53,11 +54,19 @@ export async function disconnectMeter(deviceId: string): Promise<void> {
   await getManager().cancelDeviceConnection(deviceId).catch(() => {});
 }
 
-// Subscribes to new readings as the meter takes them. Callers must remove
-// this subscription before calling fetchStoredRecords — RACP delivers
-// historical records over this same characteristic, and a live subscription
-// left running during a sync would misreport old records as new "current"
-// values.
+// Subscribes to new readings as the meter takes them. This one
+// subscription is meant to live for the whole connection — including
+// through a fetchStoredRecords() call, which delivers historical records
+// over this same characteristic. Tearing it down and re-creating it
+// around every sync (an earlier version of this code did that) both
+// misreports old records as "current" and, worse, adds exactly the kind
+// of overlapping GATT operations on one connection that triggers Android
+// GATT_INTERNAL_ERROR — removing a monitor subscription cancels its
+// transaction asynchronously, which can still be in flight when a new
+// subscription for the same characteristic is created moments later.
+// Callers should keep one subscription for the connection's lifetime and
+// use fetchStoredRecords()'s own readings callback to tell live readings
+// apart from a sync's historical burst, rather than remove/recreate.
 export function monitorLiveReadings(
   device: Device,
   onReading: (reading: BleGlucoseReading) => void,
@@ -68,6 +77,7 @@ export function monitorLiveReadings(
     GLUCOSE_MEASUREMENT_UUID,
     (error, characteristic) => {
       if (error) {
+        if (isOperationCancelledError(error)) return; // expected when this subscription is intentionally removed (disconnect/cleanup)
         onError(error);
         return;
       }
@@ -79,36 +89,28 @@ export function monitorLiveReadings(
 }
 
 const RACP_TIMEOUT_MS = 30_000;
+const GATT_SETTLE_MS = 300; // gives the RACP indication's descriptor write a moment to settle before the command write, same overlapping-GATT-operation reasoning as above
 
-// Android's BLE stack only tolerates one in-flight GATT operation per
-// connection at a time. monitorCharacteristicForService triggers an
-// async "enable notification/indication" descriptor write under the
-// hood but doesn't expose a promise for it completing — firing the RACP
-// command write in the same tick as two of those (one for the
-// measurement characteristic, one for RACP itself) races the real
-// GATT_INTERNAL_ERROR seen on-device. This delay is the standard,
-// if inelegant, workaround for that class of Android BLE timing bug.
-export const GATT_SETTLE_MS = 300;
-export function delay(ms: number): Promise<void> {
+function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// One-shot fetch of every record the meter has stored (Record Access
-// Control Point: "Report Stored Records" / "All records"). The meter
-// streams matching records as Glucose Measurement notifications, then
-// indicates completion — or an error — on the RACP characteristic itself.
-export function fetchStoredRecords(device: Device): Promise<BleGlucoseReading[]> {
+// Triggers Record Access Control Point "Report Stored Records" / "All
+// records". Resolves once the meter indicates completion (or rejects on
+// error/timeout) — it does NOT collect the records itself. The matching
+// Glucose Measurement notifications arrive over the same characteristic
+// monitorLiveReadings is already subscribed to; the caller is expected to
+// route readings into a temporary buffer while this promise is pending
+// rather than have this function open a second, competing subscription.
+export function fetchStoredRecords(device: Device): Promise<void> {
   return new Promise((resolve, reject) => {
-    const collected: BleGlucoseReading[] = [];
     let settled = false;
-    let measurementSub: { remove(): void } | null = null;
     let racpSub: { remove(): void } | null = null;
 
     const finish = (action: () => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      measurementSub?.remove();
       racpSub?.remove();
       action();
     };
@@ -118,24 +120,13 @@ export function fetchStoredRecords(device: Device): Promise<BleGlucoseReading[]>
     }, RACP_TIMEOUT_MS);
 
     (async () => {
-      measurementSub = device.monitorCharacteristicForService(
-        GLUCOSE_SERVICE_UUID,
-        GLUCOSE_MEASUREMENT_UUID,
-        (error, characteristic) => {
-          if (settled || error || !characteristic?.value) return;
-          const reading = parseGlucoseMeasurement(toByteArray(characteristic.value));
-          if (reading) collected.push(reading);
-        },
-      );
-      await delay(GATT_SETTLE_MS);
-      if (settled) return;
-
       racpSub = device.monitorCharacteristicForService(
         GLUCOSE_SERVICE_UUID,
         RECORD_ACCESS_CONTROL_POINT_UUID,
         (error, characteristic) => {
           if (settled) return;
           if (error) {
+            if (isOperationCancelledError(error)) return;
             finish(() => reject(error));
             return;
           }
@@ -145,7 +136,7 @@ export function fetchStoredRecords(device: Device): Promise<BleGlucoseReading[]>
             response.responseCode === RacpResponseCode.Success ||
             response.responseCode === RacpResponseCode.NoRecordsFound
           ) {
-            finish(() => resolve(collected));
+            finish(() => resolve());
           } else {
             finish(() => reject(new Error(`Meter reported: ${describeRacpResponseCode(response.responseCode)}`)));
           }

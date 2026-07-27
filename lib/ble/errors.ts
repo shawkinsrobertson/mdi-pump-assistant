@@ -1,4 +1,14 @@
-import { BleError, BleATTErrorCode } from 'react-native-ble-plx';
+import { BleError, BleATTErrorCode, BleErrorCode } from 'react-native-ble-plx';
+
+// Removing a monitor subscription (device.remove()) internally cancels
+// its transaction, which delivers this exact error code back to that
+// same subscription's error callback — an expected side effect of
+// intentionally tearing it down, not a real failure. Callers that keep
+// a long-lived subscription and remove it on disconnect/cleanup should
+// skip surfacing this one to the user.
+export function isOperationCancelledError(error: unknown): boolean {
+  return error instanceof BleError && error.errorCode === BleErrorCode.OperationCancelled;
+}
 
 // react-native-ble-plx's BleError carries the actual GATT-level reason
 // (attErrorCode/androidErrorCode) behind fields like .message, which is
