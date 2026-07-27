@@ -10,6 +10,7 @@ import {
   scanForMeters,
   stopScan,
 } from '../lib/ble/bleGlucoseMeter';
+import { describeBleError } from '../lib/ble/errors';
 import { requestBlePermissions } from '../lib/ble/permissions';
 import type { BleGlucoseReading } from '../lib/ble/parseGlucoseMeasurement';
 import type { GlucoseReading } from '../lib/glucose';
@@ -82,12 +83,12 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
         },
         (error) => {
           setStatus('error');
-          setErrorMessage(error.message);
+          setErrorMessage(describeBleError(error));
         },
       );
     } catch (error) {
       setStatus('error');
-      setErrorMessage(error instanceof Error ? error.message : String(error));
+      setErrorMessage(describeBleError(error));
     }
   }, []);
 
@@ -113,12 +114,12 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
             onLiveReading(reading);
           },
           (error) => {
-            setErrorMessage(error.message);
+            setErrorMessage(describeBleError(error));
           },
         );
       } catch (error) {
         setStatus('error');
-        setErrorMessage(error instanceof Error ? error.message : String(error));
+        setErrorMessage(describeBleError(error));
       }
     },
     [onLiveReading],
@@ -139,7 +140,7 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
       onHistorySync(records);
       setStatus('connected');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
+      setErrorMessage(describeBleError(error));
     } finally {
       liveSubRef.current = monitorLiveReadings(
         connectedDevice,
@@ -147,7 +148,7 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
           setLastReading(reading);
           onLiveReading(reading);
         },
-        (error) => setErrorMessage(error.message),
+        (error) => setErrorMessage(describeBleError(error)),
       );
       if (status !== 'error') setStatus('connected');
     }

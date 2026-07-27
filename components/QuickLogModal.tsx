@@ -171,6 +171,9 @@ export function QuickLogModal({ visible, onClose, currentBG }: QuickLogModalProp
             {wizard ? (
               <View style={styles.breakdown}>
                 <Text style={styles.breakdownText}>
+                  Current BG: {currentBG != null ? `${currentBG} mg/dL` : 'unavailable'}
+                </Text>
+                <Text style={styles.breakdownText}>
                   Meal {wizard.mealDose.toFixed(2)} U + correction {wizard.correction.toFixed(2)} U − IOB{' '}
                   {wizard.iob.toFixed(2)} U = {wizard.suggested.toFixed(2)} U
                 </Text>
