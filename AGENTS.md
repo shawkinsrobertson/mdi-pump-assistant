@@ -260,18 +260,30 @@ storage, the bolus wizard, and a real local oref0-based prediction engine
 (IOB/COB/autosens/carb-suggestion, adapted for a fixed MDI basal instead
 of a pump's temp basal — see `lib/oref-vendor/`) are all implemented and
 running on-device. The 4-tab navigation shell (Dashboard/Logbook/Trends/
-Settings) is in place; Trends itself is still a placeholder.
+Settings) is in place. Trends has working Time in Range and Ambulatory
+Glucose Profile cards (`lib/trends/`, `components/AgpChart.tsx`) fed by
+glucose_readings' 90-day retention; Patterns/Insights and the clinician
+export remain "coming soon".
+
+`lib/importers/nightscout.ts` parses real Nightscout-format entries/
+treatments exports (the same shape AAPS/xDrip+/Nightscout all produce).
+`scripts/seed-data/` bundles a small real export for testing, loaded via
+a "Seed test data" button under Settings > Developer. This is explicitly
+**not** the v1 import feature — the user wants a real "Import from
+Nightscout backup" feature eventually (Settings > Data and Sharing per
+the mockups), but v1 targets MDI users without that kind of migration
+tooling. The seed button/bundled data should be removed before any real
+release build.
 
 Not done yet: edit/delete on logged treatments and basal doses, the
 exponential IOB model (current model is an explicitly-flagged linear
 placeholder — separate from the vendored oref0 IOB calc, which is used
-only for the prediction engine), the Trends screen's actual content
-(Time in Range, Ambulatory Glucose Profile, clinician export, and a
-future "Patterns and Insights" LLM feature), the Settings category
-restructure shown in that session's mockups, and a live-timer
-notification for Activity logging (a simpler start/duration-only version
-is planned first). The BLE meter's RACP "Sync History" still hits a
-`GATT_INTERNAL_ERROR` that hasn't been resolved.
+only for the prediction engine), Trends' Patterns/Insights (an LLM
+feature) and clinician export, the Settings category restructure shown
+in that session's mockups, the real (v1+) Nightscout import feature, and
+a live-timer notification for Activity logging (a simpler start/
+duration-only version is planned first). The BLE meter's RACP "Sync
+History" still hits a `GATT_INTERNAL_ERROR` that hasn't been resolved.
 
 - `shawkinsrobertson/shelbyai-diabetes-assistant` is the web dashboard
   this app's bolus wizard and Quick Log UX were ported from.

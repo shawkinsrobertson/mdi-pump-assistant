@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import rawSeedEntries from '../scripts/seed-data/entries.json';
+import rawSeedTreatments from '../scripts/seed-data/treatments.json';
+import { insertReadings } from '../lib/db/glucoseReadings';
+import { DuplicateTreatmentError, insertTreatment } from '../lib/db/treatments';
+import { parseNightscoutEntries, parseNightscoutTreatments } from '../lib/importers/nightscout';
 import { useSettings } from '../lib/settings';
 
 function numOrNull(text: string): number | null {
@@ -19,6 +24,8 @@ export function SettingsScreen() {
   const [rangeLow, setRangeLow] = useState('70');
   const [rangeHigh, setRangeHigh] = useState('180');
   const [saved, setSaved] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [seedResult, setSeedResult] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loaded) return;
@@ -45,6 +52,42 @@ export function SettingsScreen() {
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  // Dev-only testing aid: seeds the local DB from a real (small) Nightscout
+  // export bundled at build time (scripts/seed-data/) — NOT the v1 import
+  // feature (that's deferred; see AGENTS.md). Remove this section before
+  // any real release build.
+  const handleSeedTestData = async () => {
+    setSeeding(true);
+    setSeedResult(null);
+    try {
+      const readings = parseNightscoutEntries(rawSeedEntries);
+      await insertReadings('nightscout-seed', readings);
+
+      const treatments = parseNightscoutTreatments(rawSeedTreatments);
+      let inserted = 0;
+      let duplicates = 0;
+      for (const t of treatments) {
+        try {
+          await insertTreatment(t);
+          inserted++;
+        } catch (e) {
+          if (e instanceof DuplicateTreatmentError) {
+            duplicates++;
+          } else {
+            throw e;
+          }
+        }
+      }
+      setSeedResult(
+        `Seeded ${readings.length} glucose readings, ${inserted} treatments (${duplicates} already present).`,
+      );
+    } catch (e) {
+      setSeedResult(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSeeding(false);
+    }
   };
 
   return (
@@ -81,6 +124,22 @@ export function SettingsScreen() {
       <Pressable style={styles.button} onPress={handleSave}>
         <Text style={styles.buttonText}>Save</Text>
       </Pressable>
+
+      <View style={styles.devSection}>
+        <Text style={styles.devTitle}>Developer</Text>
+        <Text style={styles.hint}>
+          Loads a real (small) Nightscout export bundled with the app for testing Trends/Prediction against real
+          data. Temporary testing aid, not the (later) real import feature.
+        </Text>
+        <Pressable
+          style={[styles.button, styles.buttonSecondary, seeding && styles.buttonDisabled]}
+          disabled={seeding}
+          onPress={handleSeedTestData}
+        >
+          {seeding ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Seed test data</Text>}
+        </Pressable>
+        {seedResult && <Text style={styles.seedResult}>{seedResult}</Text>}
+      </View>
     </ScrollView>
   );
 }
@@ -160,8 +219,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 12,
   },
+  buttonSecondary: {
+    backgroundColor: '#888',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
   buttonText: {
     color: '#fff',
     fontWeight: '600',
+  },
+  devSection: {
+    marginTop: 32,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  devTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#888',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  seedResult: {
+    fontSize: 13,
+    color: '#333',
+    marginTop: 8,
   },
 });
