@@ -144,7 +144,18 @@ that specific meter.
   connection) has already finished. Only then is the RACP command
   written. The read-back value itself is just logged as a diagnostic
   (`CCCD_ENABLE_INDICATIONS` in `lib/ble/gatt.ts`), not enforced, in case
-  this still isn't the whole story. Unverified off-device as of this note.
+  this still isn't the whole story.
+  Verified on-device: still reproduces the same GATT_INTERNAL_ERROR (129).
+  The ordering-race theory (this fix, and the previous 2s bond-retry
+  delay before it) has now been tried and hasn't resolved it — the root
+  cause is still unknown. Deprioritized again per explicit direction to
+  move on to the Trends screen; next time this is picked back up, the
+  ordering theory should probably be considered ruled out rather than
+  retried a third way, and something else investigated (e.g. whether the
+  Contour Next One's RACP characteristic genuinely requires a bonded
+  *and* explicitly re-encrypted link that Android's automatic bonding
+  flow isn't actually establishing before our first touch of RACP, not
+  just a timing/ordering issue).
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
