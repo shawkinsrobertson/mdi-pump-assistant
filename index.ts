@@ -1,3 +1,6 @@
+// Must run before any oref-vendor code does — see the file for why.
+import './lib/oref-vendor/polyfillProcessStreams';
+
 import { registerRootComponent } from 'expo';
 
 import App from './App';
