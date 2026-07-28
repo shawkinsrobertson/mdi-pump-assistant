@@ -1,18 +1,35 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AgpChart } from '../components/AgpChart';
 import { getReadingsSince } from '../lib/db/glucoseReadings';
+import type { GlucoseReading } from '../lib/glucose';
 import { useSettings } from '../lib/settings';
-import { computeTimeInRange, type TimeInRangeResult } from '../lib/trends/timeInRange';
+import { computeAgpBuckets, computeAgpSummary } from '../lib/trends/agp';
+import { computeTimeInRange } from '../lib/trends/timeInRange';
 import { TRENDS_WINDOWS, trendsWindowLabel, windowStartMs, type TrendsWindow } from '../lib/trends/window';
 
-// Ambulatory Glucose Profile and Patterns/Insights are later work (see
-// AGENTS.md) — this screen currently only has the Time in Range card.
+type SummaryStat = 'median' | 'mean' | 'stdDev' | 'estimatedA1c';
+
+const SUMMARY_STAT_LABELS: Record<SummaryStat, string> = {
+  median: 'Median',
+  mean: 'Mean',
+  stdDev: 'Std. Dev.',
+  estimatedA1c: 'Est. A1c',
+};
+
+function formatSummaryValue(stat: SummaryStat, value: number): string {
+  if (stat === 'estimatedA1c') return `${value.toFixed(1)}%`;
+  return `${value.toFixed(1)} mg/dL`;
+}
+
+// Patterns/Insights (an LLM feature) is later work — see AGENTS.md.
 export function TrendsScreen() {
   const [settings, , settingsLoaded] = useSettings();
   const [window, setWindow] = useState<TrendsWindow>(7);
-  const [tir, setTir] = useState<TimeInRangeResult | null>(null);
+  const [readings, setReadings] = useState<GlucoseReading[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [summaryStat, setSummaryStat] = useState<SummaryStat>('median');
 
   useFocusEffect(
     useCallback(() => {
@@ -21,9 +38,9 @@ export function TrendsScreen() {
       setError(null);
       const since = windowStartMs(window, new Date());
       getReadingsSince(since)
-        .then((readings) => {
+        .then((rows) => {
           if (cancelled) return;
-          setTir(computeTimeInRange(readings, settings.rangeLow, settings.rangeHigh));
+          setReadings(rows);
         })
         .catch((e) => {
           if (cancelled) return;
@@ -32,8 +49,15 @@ export function TrendsScreen() {
       return () => {
         cancelled = true;
       };
-    }, [window, settingsLoaded, settings.rangeLow, settings.rangeHigh]),
+    }, [window, settingsLoaded]),
   );
+
+  const tir = useMemo(
+    () => (readings ? computeTimeInRange(readings, settings.rangeLow, settings.rangeHigh) : null),
+    [readings, settings.rangeLow, settings.rangeHigh],
+  );
+  const agpBuckets = useMemo(() => (readings ? computeAgpBuckets(readings) : null), [readings]);
+  const agpSummary = useMemo(() => (readings ? computeAgpSummary(readings) : null), [readings]);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -87,7 +111,34 @@ export function TrendsScreen() {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Ambulatory Profile</Text>
-        <Text style={styles.message}>Coming soon.</Text>
+
+        {!error && agpBuckets !== null && readings !== null && readings.length === 0 && (
+          <Text style={styles.message}>No glucose readings in this window yet.</Text>
+        )}
+
+        {!error && agpBuckets !== null && readings !== null && readings.length > 0 && (
+          <>
+            <AgpChart buckets={agpBuckets} />
+            {agpSummary && (
+              <>
+                <Text style={styles.summaryValue}>{formatSummaryValue(summaryStat, agpSummary[summaryStat])}</Text>
+                <View style={styles.toggleRow}>
+                  {(Object.keys(SUMMARY_STAT_LABELS) as SummaryStat[]).map((stat) => (
+                    <Pressable
+                      key={stat}
+                      style={[styles.toggleButton, summaryStat === stat && styles.toggleButtonActive]}
+                      onPress={() => setSummaryStat(stat)}
+                    >
+                      <Text style={[styles.toggleText, summaryStat === stat && styles.toggleTextActive]}>
+                        {SUMMARY_STAT_LABELS[stat]}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            )}
+          </>
+        )}
       </View>
 
       <View style={styles.card}>
@@ -173,6 +224,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     marginTop: 8,
+  },
+  summaryValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1e3a8a',
+    textAlign: 'center',
+    marginTop: 12,
   },
   toggleRow: {
     flexDirection: 'row',
