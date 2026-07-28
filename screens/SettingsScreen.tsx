@@ -1,11 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSettings } from '../lib/settings';
-
-interface SettingsModalProps {
-  visible: boolean;
-  onClose: () => void;
-}
 
 function numOrNull(text: string): number | null {
   if (text.trim() === '') return null;
@@ -13,7 +8,7 @@ function numOrNull(text: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export function SettingsModal({ visible, onClose }: SettingsModalProps) {
+export function SettingsScreen() {
   const [settings, updateSettings, loaded] = useSettings();
   const [isf, setIsf] = useState('');
   const [carbRatio, setCarbRatio] = useState('');
@@ -21,6 +16,7 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
   const [dia, setDia] = useState('');
   const [penIncrement, setPenIncrement] = useState('1');
   const [maxIOB, setMaxIOB] = useState('');
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (!loaded) return;
@@ -41,36 +37,35 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
       penIncrement: numOrNull(penIncrement) ?? 1,
       maxIOB: numOrNull(maxIOB),
     });
-    onClose();
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
   };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.headerRow}>
         <Text style={styles.title}>Settings</Text>
-        <Text style={styles.hint}>
-          Required for the bolus wizard. Never pre-filled with a "typical" value — enter your own.
-        </Text>
+        {saved && <Text style={styles.confirmed}>Saved ✓</Text>}
+      </View>
+      <Text style={styles.hint}>
+        Required for the bolus wizard and predictions. Never pre-filled with a "typical" value — enter your own.
+      </Text>
 
-        <Field label="ISF (correction factor, mg/dL per unit)" value={isf} onChangeText={setIsf} />
-        <Field label="Carb ratio (grams per unit)" value={carbRatio} onChangeText={setCarbRatio} />
-        <Field label="Target BG (mg/dL)" value={targetBG} onChangeText={setTargetBG} />
-        <Field label="DIA — duration of insulin action (hours)" value={dia} onChangeText={setDia} />
-        <Field label="Pen increment (units, e.g. 1 or 0.5)" value={penIncrement} onChangeText={setPenIncrement} />
-        <Field
-          label="Max IOB (units) — insulin-on-board safety cap for predictions"
-          value={maxIOB}
-          onChangeText={setMaxIOB}
-        />
+      <Field label="ISF (correction factor, mg/dL per unit)" value={isf} onChangeText={setIsf} />
+      <Field label="Carb ratio (grams per unit)" value={carbRatio} onChangeText={setCarbRatio} />
+      <Field label="Target BG (mg/dL)" value={targetBG} onChangeText={setTargetBG} />
+      <Field label="DIA — duration of insulin action (hours)" value={dia} onChangeText={setDia} />
+      <Field label="Pen increment (units, e.g. 1 or 0.5)" value={penIncrement} onChangeText={setPenIncrement} />
+      <Field
+        label="Max IOB (units) — insulin-on-board safety cap for predictions"
+        value={maxIOB}
+        onChangeText={setMaxIOB}
+      />
 
-        <Pressable style={styles.button} onPress={handleSave}>
-          <Text style={styles.buttonText}>Save</Text>
-        </Pressable>
-        <Pressable style={[styles.button, styles.buttonSecondary]} onPress={onClose}>
-          <Text style={styles.buttonText}>Cancel</Text>
-        </Pressable>
-      </ScrollView>
-    </Modal>
+      <Pressable style={styles.button} onPress={handleSave}>
+        <Text style={styles.buttonText}>Save</Text>
+      </Pressable>
+    </ScrollView>
   );
 }
 
@@ -106,10 +101,19 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingTop: 60,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   title: {
     fontSize: 20,
     fontWeight: '700',
-    marginBottom: 8,
+  },
+  confirmed: {
+    color: '#16a34a',
+    fontWeight: '600',
   },
   hint: {
     fontSize: 13,
@@ -139,9 +143,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 12,
-  },
-  buttonSecondary: {
-    backgroundColor: '#888',
   },
   buttonText: {
     color: '#fff',

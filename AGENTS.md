@@ -2,8 +2,32 @@
 
 Native Expo (React Native + TypeScript) app that reads live CGM data from
 xDrip+'s local Nightscout-compatible web server and/or a Bluetooth glucose
-meter, logs treatments to a local SQLite database, and suggests bolus doses
-from user-entered settings — no Nightscout, no cloud roundtrip.
+meter, logs treatments to a local SQLite database, suggests bolus doses
+from user-entered settings, and runs a real, MDI-adapted port of the
+oref0 (OpenAPS) prediction algorithm locally — no Nightscout, no cloud
+roundtrip. See `lib/oref-vendor/MODIFICATIONS.md` for exactly what was
+vendored and what was changed to support MDI (fixed long-acting basal
+instead of a pump's temp basal).
+
+## App shell / navigation
+
+Four persistent tabs via React Navigation's bottom tab navigator
+(`App.tsx`): Dashboard, Logbook, Trends, Settings — each a screen under
+`screens/`, not a modal. `lib/GlucoseContext.tsx` owns the xDrip+ poll and
+`useGlucoseSource()` state above the tab navigator (a `GlucoseProvider`
+wrapping everything), so any tab — not just Dashboard — can read live
+current BG/history via `useGlucose()` without starting its own poll.
+Quick-entry flows that don't warrant their own tab (Quick Log, Connect
+Meter, Log Basal Dose, Prediction) remain modals, launched from
+Dashboard. `TrendsScreen` is currently a placeholder — Time in Range,
+Ambulatory Glucose Profile, and a clinician export are designed (see the
+mockups from that session) but not yet built; "Patterns and Insights"
+within Trends is explicitly deferred as a future LLM-integration task.
+
+Adding `@react-navigation/*`, `react-native-screens`, and
+`react-native-safe-area-context` means any environment building this app
+needs a dev-client rebuild after pulling this change, not just a JS
+reload — see "Verification notes" below.
 
 ## CGM integration (xDrip+)
 
@@ -191,9 +215,22 @@ This environment has no physical device or emulator, so:
 ## Status
 
 Live CGM + Bluetooth meter ingestion, the trend graph, local treatment
-storage, and the bolus wizard are all implemented. Not done yet: edit/
-delete on logged treatments, COB, and the exponential IOB model (current
-model is an explicitly-flagged linear placeholder).
+storage, the bolus wizard, and a real local oref0-based prediction engine
+(IOB/COB/autosens/carb-suggestion, adapted for a fixed MDI basal instead
+of a pump's temp basal — see `lib/oref-vendor/`) are all implemented and
+running on-device. The 4-tab navigation shell (Dashboard/Logbook/Trends/
+Settings) is in place; Trends itself is still a placeholder.
+
+Not done yet: edit/delete on logged treatments and basal doses, the
+exponential IOB model (current model is an explicitly-flagged linear
+placeholder — separate from the vendored oref0 IOB calc, which is used
+only for the prediction engine), the Trends screen's actual content
+(Time in Range, Ambulatory Glucose Profile, clinician export, and a
+future "Patterns and Insights" LLM feature), the Settings category
+restructure shown in that session's mockups, and a live-timer
+notification for Activity logging (a simpler start/duration-only version
+is planned first). The BLE meter's RACP "Sync History" still hits a
+`GATT_INTERNAL_ERROR` that hasn't been resolved.
 
 - `shawkinsrobertson/shelbyai-diabetes-assistant` is the web dashboard
   this app's bolus wizard and Quick Log UX were ported from.
