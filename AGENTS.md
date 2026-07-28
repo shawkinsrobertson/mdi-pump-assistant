@@ -124,13 +124,27 @@ that specific meter.
   to succeed before ever writing the RACP command opcode. Our code was
   instead using `monitorCharacteristicForService` (which gives no
   completion signal for its internal descriptor write) followed by a
-  blind fixed delay — a guess, not a confirmation. Changed
-  `fetchStoredRecords` to explicitly call `writeDescriptorForService` on
-  RACP's CCCD (`CLIENT_CHARACTERISTIC_CONFIG_UUID` in `lib/ble/gatt.ts`)
-  and await its promise for real completion before attaching the monitor
-  (now passed `'indication'` explicitly — RACP is indicate-only per spec,
-  unlike Glucose Measurement's notify-only) or writing the command. Also
-  unverified off-device as of this note.
+  blind fixed delay — a guess, not a confirmation.
+  First attempt at fixing this tried calling `writeDescriptorForService`
+  directly on RACP's CCCD — react-native-ble-plx unconditionally rejects
+  this (error 506, `DescriptorWriteNotAllowed`: "not allowed by iOS and
+  therefore forbidden on Android as well"; confirmed in the library's own
+  Android source — it's a hard guard on the CCCD UUID specifically, not
+  device/OS behavior). Enabling notifications/indications can *only* be
+  triggered through `monitorCharacteristicForService`'s own internal
+  mechanism; there is no way to directly await that internal write.
+  Corrected fix: reading the CCCD (`readDescriptorForService`) is *not*
+  similarly restricted, and Android only ever runs one GATT operation at
+  a time per connection — so `fetchStoredRecords` now calls
+  `monitorCharacteristicForService` (passed `'indication'` explicitly —
+  RACP is indicate-only per spec, unlike Glucose Measurement's
+  notify-only) and then immediately reads the same CCCD descriptor back
+  and awaits it, purely as an ordering barrier: that read cannot complete
+  before the monitor's own enable write (queued first on the same
+  connection) has already finished. Only then is the RACP command
+  written. The read-back value itself is just logged as a diagnostic
+  (`CCCD_ENABLE_INDICATIONS` in `lib/ble/gatt.ts`), not enforced, in case
+  this still isn't the whole story. Unverified off-device as of this note.
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
