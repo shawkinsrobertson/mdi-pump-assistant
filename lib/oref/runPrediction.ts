@@ -12,10 +12,13 @@ import { computePrediction, type PredictionResult } from './predictionCore';
 
 export type { PredictionResult } from './predictionCore';
 
-// How far back to look for glucose/treatment history. 7h comfortably
-// covers cob.js's 6h carb-absorption window with margin for the
-// delta-averaging lookback in glucose-get-last.js.
-const HISTORY_LOOKBACK_MS = 7 * 60 * 60 * 1000;
+// How far back to look for glucose/treatment history. Widened to 24h to
+// cover autosens's own lookback (it wants up to 24h of non-excluded
+// deviations); this is a superset of what COB (6h) and IOB need, and
+// extra older history is harmless there since both filter their own
+// relevant windows internally. Matches glucose_readings' own 24h
+// retention ceiling, so this always fetches everything we have.
+const HISTORY_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
 // Basal doses whose activity curve could still be non-zero right now —
 // widened past degludec's ~42h duration with margin; costs nothing since

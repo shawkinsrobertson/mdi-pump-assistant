@@ -55,6 +55,19 @@ export function PredictionModal({ visible, onClose }: PredictionModalProps) {
 
         {!loading && !error && result?.status === 'ok' && (
           <>
+            {!result.autosensInsufficientData && Math.abs(result.autosensRatio - 1) >= 0.05 && (
+              <View style={styles.sensitivityBox}>
+                <Text style={styles.sensitivityTitle}>
+                  {result.autosensRatio < 1 ? 'Increased sensitivity detected' : 'Increased resistance detected'}
+                </Text>
+                <Text style={styles.sensitivityDetail}>
+                  Ratio {result.autosensRatio.toFixed(2)} — predictions and suggestions below are using an adjusted
+                  ISF of {result.autosensAdjustedISF} instead of your usual value. This can happen with recent
+                  activity, illness, or other changes — not wired into your manual bolus wizard.
+                </Text>
+              </View>
+            )}
+
             {result.carbsSuggested != null ? (
               <View style={styles.suggestionBox}>
                 <Text style={styles.suggestionTitle}>Suggested: {result.carbsSuggested}g carbs</Text>
@@ -80,6 +93,11 @@ export function PredictionModal({ visible, onClose }: PredictionModalProps) {
                 <Text style={styles.warning}>
                   Not enough glucose history yet to estimate carb absorption — COB is showing as 0 until more
                   builds up.
+                </Text>
+              )}
+              {result.autosensInsufficientData && (
+                <Text style={styles.warning}>
+                  Not enough glucose history yet (6h+ needed) to check for sensitivity changes.
                 </Text>
               )}
             </View>
@@ -127,6 +145,22 @@ const styles = StyleSheet.create({
   error: {
     fontSize: 14,
     color: '#c00',
+  },
+  sensitivityBox: {
+    backgroundColor: '#dbeafe',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+  },
+  sensitivityTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e40af',
+    marginBottom: 6,
+  },
+  sensitivityDetail: {
+    fontSize: 13,
+    color: '#1e3a8a',
   },
   suggestionBox: {
     backgroundColor: '#fef3c7',

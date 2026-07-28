@@ -5,6 +5,7 @@
 // runtime — so this file can be required under jest without pulling in
 // expo-sqlite (see runPrediction.ts, which is the thin I/O shell that
 // fetches real data and calls into this file).
+import detectSensitivity from '../oref-vendor/lib/determine-basal/autosens';
 import determineBasal from '../oref-vendor/lib/determine-basal/determine-basal';
 import generateMealData from '../oref-vendor/lib/meal';
 import getLastGlucose from '../oref-vendor/lib/glucose-get-last';
@@ -31,6 +32,25 @@ const MAX_COB = 120; // g
 // does with sparse history.
 const MIN_GLUCOSE_POINTS_FOR_COB = 36;
 
+// oref0's own defaults for how far autosens is allowed to move ISF (see
+// autosens.js's ratio clamp) — algorithm tuning constants, not personal
+// clinical values.
+const AUTOSENS_MIN = 0.7;
+const AUTOSENS_MAX = 1.2;
+
+// oref0-detect-sensitivity.js's own CLI requires 6h of glucose data before
+// attempting autosens at all ("Optional feature autosens disabled: not
+// enough glucose data"); replicated here rather than inventing a
+// different threshold.
+const MIN_GLUCOSE_POINTS_FOR_AUTOSENS = 72;
+
+// oref0-detect-sensitivity.js's own CLI runs autosens twice — once over
+// the most recent 8h of non-excluded deviations, once over up to 24h —
+// and uses whichever ratio is lower (more sensitive-favoring), rather
+// than trusting either window alone. Replicated verbatim below.
+const AUTOSENS_SHORT_WINDOW_DEVIATIONS = 96;
+const AUTOSENS_LONG_WINDOW_DEVIATIONS = 288;
+
 export type PredictionResult =
   | { status: 'settings-incomplete'; missing: string[] }
   | { status: 'no-glucose-data' }
@@ -44,6 +64,9 @@ export type PredictionResult =
       mealCOB: number;
       currentBasal: number;
       insufficientGlucoseForCOB: boolean;
+      autosensRatio: number;
+      autosensAdjustedISF: number | null;
+      autosensInsufficientData: boolean;
     };
 
 interface RequiredSettings {
@@ -99,6 +122,67 @@ export function toGlucoseData(readings: GlucoseReading[]): Array<{ date: number;
     .map((r) => ({ date: r.date, dateString: new Date(r.date).toISOString(), glucose: r.sgv }));
 }
 
+interface AutosensProfile {
+  sens: number;
+  carb_ratio: number;
+  min_5m_carbimpact: number;
+  isfProfile: { sensitivities: Array<{ offset: number; sensitivity: number }> };
+  autosens_min: number;
+  autosens_max: number;
+}
+
+interface AutosensResult {
+  ratio: number;
+  insufficientData: boolean;
+}
+
+// Detects insulin sensitivity/resistance from unexplained BG deviations
+// (oref0's own autosens.js — vendored, not reimplemented) and returns the
+// ratio determine_basal should use to recalibrate ISF. Not wired into the
+// bolus wizard (lib/bolus.ts) — only into this prediction/suggestion path,
+// per an explicit decision not to touch manual dosing yet.
+//
+// profile.max_daily_basal (used only as a normalizing denominator inside
+// autosens.js — it has no other effect and never represents an actual
+// delivery limit) has no literal MDI equivalent, since there's no daily
+// basal schedule to take a peak from. currentBasal (the calculated hourly
+// rate from the user's logged long-acting dose) is used as the stand-in —
+// the closest real "normal hourly insulin rate" MDI has, and numerically
+// equivalent to what a flat-basal-profile pump user would produce here
+// anyway (current_basal == max_daily_basal for a flat schedule).
+function computeAutosens(
+  glucoseReadings: GlucoseReading[],
+  treatments: Treatment[],
+  profile: AutosensProfile,
+  basalProfileForCob: Array<{ i: number; start: string; minutes: number; rate: number }>,
+): AutosensResult {
+  if (glucoseReadings.length < MIN_GLUCOSE_POINTS_FOR_AUTOSENS) {
+    return { ratio: 1, insufficientData: true };
+  }
+
+  const iobInputs = { history: toPumpHistory(treatments), profile };
+  const baseInputs = {
+    iob_inputs: iobInputs,
+    carbs: toCarbHistory(treatments),
+    basalprofile: basalProfileForCob,
+    temptargets: [],
+    retrospective: false,
+  };
+
+  const shortWindow = detectSensitivity({
+    ...baseInputs,
+    glucose_data: toGlucoseData(glucoseReadings),
+    deviations: AUTOSENS_SHORT_WINDOW_DEVIATIONS,
+  });
+  const longWindow = detectSensitivity({
+    ...baseInputs,
+    glucose_data: toGlucoseData(glucoseReadings),
+    deviations: AUTOSENS_LONG_WINDOW_DEVIATIONS,
+  });
+
+  return { ratio: Math.min(shortWindow.ratio, longWindow.ratio), insufficientData: false };
+}
+
 export interface ComputePredictionInputs {
   settings: Settings;
   glucoseReadings: GlucoseReading[];
@@ -140,17 +224,25 @@ export function computePrediction({
     min_5m_carbimpact: MIN_5M_CARBIMPACT,
     maxCOB: MAX_COB,
     isfProfile: { sensitivities: [{ offset: 0, sensitivity: required.isf }] },
+    // See computeAutosens's own comment for why max_daily_basal is
+    // currentBasal here.
+    max_daily_basal: currentBasal,
+    autosens_min: AUTOSENS_MIN,
+    autosens_max: AUTOSENS_MAX,
     mdiMode: true,
   };
 
   const pumpHistory = toPumpHistory(treatments);
   const carbHistory = toCarbHistory(treatments);
-  // Inert placeholder for cob.js's internal basalLookup() calls: this app
-  // never logs TempBasal history, so profile.current_basal is only ever
-  // read there for a code path (duration>0 temp-basal splitting) that
-  // never triggers for bolus-only pump history. A non-zero value just
-  // satisfies basalLookup's own "bad basal schedule" guard.
+  // Inert placeholder for cob.js's (and autosens.js's) internal
+  // basalLookup() calls: this app never logs TempBasal history, so
+  // profile.current_basal is only ever read there for a code path
+  // (duration>0 temp-basal splitting) that never triggers for bolus-only
+  // pump history. A non-zero value just satisfies basalLookup's own "bad
+  // basal schedule" guard.
   const basalProfileForCob = [{ i: 0, start: '00:00:00', minutes: 0, rate: Math.max(currentBasal, 0.001) }];
+
+  const autosens = computeAutosens(glucoseReadings, treatments, profile, basalProfileForCob);
 
   const glucoseStatus = getLastGlucose(toGlucoseData(glucoseReadings));
 
@@ -158,7 +250,7 @@ export function computePrediction({
     clock,
     history: pumpHistory,
     profile,
-    autosens: { ratio: 1 },
+    autosens: { ratio: autosens.ratio },
   });
 
   const insufficientGlucoseForCOB = glucoseReadings.length < MIN_GLUCOSE_POINTS_FOR_COB;
@@ -177,7 +269,7 @@ export function computePrediction({
   }
 
   const currenttemp = { duration: 0, rate: 0, temp: 'absolute' };
-  const autosensData = { ratio: 1 };
+  const autosensData = { ratio: autosens.ratio };
 
   const rT = determineBasal(
     glucoseStatus,
@@ -206,5 +298,8 @@ export function computePrediction({
     mealCOB: mealData.mealCOB ?? 0,
     currentBasal,
     insufficientGlucoseForCOB,
+    autosensRatio: autosens.ratio,
+    autosensAdjustedISF: autosens.insufficientData ? null : (rT.ISF as number | undefined) ?? null,
+    autosensInsufficientData: autosens.insufficientData,
   };
 }

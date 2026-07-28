@@ -124,7 +124,27 @@ not stubbed out — fed by glucose history that's durably persisted to a
 local `glucose_readings` table (`lib/db/glucoseReadings.ts`) rather than
 kept in memory only, so COB detection survives an app restart. This mirrors
 how AndroidAPS solves the same problem (persisting every received CGM
-value locally). Autosens (`lib/oref-vendor/lib/determine-basal/autosens.js`)
-is vendored but not yet wired in; a neutral `{ratio: 1}` is passed instead —
-a deliberate, flagged simplification for this first pass, not a stand-in
-for a decision that was made silently.
+value locally).
+
+Autosens (`lib/oref-vendor/lib/determine-basal/autosens.js`) is wired in
+via `computeAutosens()` in `predictionCore.ts`, run exactly the way
+`bin/oref0-detect-sensitivity.js` runs it upstream: twice (once over the
+most recent 8h of non-excluded deviations, once over up to 24h), taking
+whichever ratio is lower. Unlike the determine-basal forks, autosens
+needed **no algorithm changes at all** — its detection logic and its
+effect on `determine_basal` (recalibrating `sens`/ISF) are pure math, not
+a delivery action, so they apply to MDI exactly as they do to a pump.
+
+The one MDI-specific adaptation is `profile.max_daily_basal`, which
+autosens.js uses only as a normalizing denominator (never as an actual
+delivery limit) to convert a detected insulin discrepancy into a ratio.
+There's no daily basal schedule for MDI to take a peak from, so the
+calculated current hourly rate from the user's logged long-acting dose
+(the same `currentBasal` fed to `profile.current_basal`) is used as the
+stand-in — numerically equivalent to what a flat-basal-profile pump user
+would produce here anyway.
+
+Per an explicit decision, the resulting ratio is **not** wired into the
+manual bolus wizard (`lib/bolus.ts`) — only into this prediction path.
+`PredictionModal` shows a distinct banner when a sensitivity/resistance
+change is detected (ratio more than 5% from 1.0).
