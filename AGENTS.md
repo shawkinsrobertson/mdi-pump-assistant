@@ -115,6 +115,22 @@ that specific meter.
   thing to check is whether the meter is actually showing as "paired" in
   Android's Bluetooth settings at all, independent of anything this app
   does.
+  Second follow-up: researched xDrip+'s BLE handling for approach
+  (GPL-3.0 — studied for architecture only, no code copied). Its core
+  insight is strict single-GATT-operation-at-a-time sequencing: it never
+  writes a characteristic until the *previous* operation's own completion
+  callback has actually fired, and specifically waits for the RACP
+  characteristic's CCCD (notification/indication-enable descriptor) write
+  to succeed before ever writing the RACP command opcode. Our code was
+  instead using `monitorCharacteristicForService` (which gives no
+  completion signal for its internal descriptor write) followed by a
+  blind fixed delay — a guess, not a confirmation. Changed
+  `fetchStoredRecords` to explicitly call `writeDescriptorForService` on
+  RACP's CCCD (`CLIENT_CHARACTERISTIC_CONFIG_UUID` in `lib/ble/gatt.ts`)
+  and await its promise for real completion before attaching the monitor
+  (now passed `'indication'` explicitly — RACP is indicate-only per spec,
+  unlike Glucose Measurement's notify-only) or writing the command. Also
+  unverified off-device as of this note.
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first

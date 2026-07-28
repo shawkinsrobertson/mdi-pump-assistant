@@ -1,7 +1,13 @@
 import { fromByteArray, toByteArray } from 'base64-js';
 import { BleManager, type Device, type State } from 'react-native-ble-plx';
 import { isOperationCancelledError } from './errors';
-import { GLUCOSE_MEASUREMENT_UUID, GLUCOSE_SERVICE_UUID, RECORD_ACCESS_CONTROL_POINT_UUID } from './gatt';
+import {
+  CCCD_ENABLE_INDICATIONS,
+  CLIENT_CHARACTERISTIC_CONFIG_UUID,
+  GLUCOSE_MEASUREMENT_UUID,
+  GLUCOSE_SERVICE_UUID,
+  RECORD_ACCESS_CONTROL_POINT_UUID,
+} from './gatt';
 import { parseGlucoseMeasurement, type BleGlucoseReading } from './parseGlucoseMeasurement';
 import { buildReportAllRecordsCommand, describeRacpResponseCode, parseRacpResponse, RacpResponseCode } from './racp';
 
@@ -89,7 +95,6 @@ export function monitorLiveReadings(
 }
 
 const RACP_TIMEOUT_MS = 30_000;
-const GATT_SETTLE_MS = 300; // gives the RACP indication's descriptor write a moment to settle before the command write, same overlapping-GATT-operation reasoning as above
 
 // react-native-ble-plx exposes no bonding API at all. When a write fails
 // because the characteristic needs a bonded/encrypted link, Android's own
@@ -104,6 +109,22 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Runs a GATT write, retrying once after BOND_RETRY_DELAY_MS on failure —
+// the standard workaround above, factored out since both the CCCD write
+// and the RACP command write below need it.
+async function writeWithBondRetry<T>(write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (firstError) {
+    await delay(BOND_RETRY_DELAY_MS);
+    try {
+      return await write();
+    } catch {
+      throw firstError;
+    }
+  }
+}
+
 // Triggers Record Access Control Point "Report Stored Records" / "All
 // records". Resolves once the meter indicates completion (or rejects on
 // error/timeout) — it does NOT collect the records itself. The matching
@@ -111,6 +132,19 @@ function delay(ms: number): Promise<void> {
 // monitorLiveReadings is already subscribed to; the caller is expected to
 // route readings into a temporary buffer while this promise is pending
 // rather than have this function open a second, competing subscription.
+//
+// Sequencing here matters: xDrip+'s BLE handling (researched for this —
+// GPL-3.0, so studied for approach only, no code copied) uses a strict
+// single-GATT-operation-at-a-time queue, and specifically waits for the
+// RACP characteristic's CCCD (notification/indication-enable descriptor)
+// write to actually complete before ever writing the RACP command opcode.
+// The previous version of this function instead used monitorCharacteristicForService
+// (which gives no completion signal for its internal descriptor write)
+// followed by a blind fixed delay — a guess, not a confirmation, and
+// exactly the kind of overlapping-GATT-operation race that triggers
+// Android's GATT_INTERNAL_ERROR. writeDescriptorForService, by contrast,
+// returns a promise that resolves on real completion, so we use that
+// explicitly and await it before touching the characteristic further.
 export function fetchStoredRecords(device: Device): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -129,48 +163,59 @@ export function fetchStoredRecords(device: Device): Promise<void> {
     }, RACP_TIMEOUT_MS);
 
     (async () => {
-      racpSub = device.monitorCharacteristicForService(
-        GLUCOSE_SERVICE_UUID,
-        RECORD_ACCESS_CONTROL_POINT_UUID,
-        (error, characteristic) => {
-          if (settled) return;
-          if (error) {
-            if (isOperationCancelledError(error)) return;
-            finish(() => reject(error));
-            return;
-          }
-          if (!characteristic?.value) return;
-          const response = parseRacpResponse(toByteArray(characteristic.value));
-          if (
-            response.responseCode === RacpResponseCode.Success ||
-            response.responseCode === RacpResponseCode.NoRecordsFound
-          ) {
-            finish(() => resolve());
-          } else {
-            finish(() => reject(new Error(`Meter reported: ${describeRacpResponseCode(response.responseCode)}`)));
-          }
-        },
-      );
-      await delay(GATT_SETTLE_MS);
-      if (settled) return;
+      try {
+        // 1. Explicitly enable indications on RACP and wait for real
+        // confirmation the descriptor write completed — not a guess.
+        await writeWithBondRetry(() =>
+          device.writeDescriptorForService(
+            GLUCOSE_SERVICE_UUID,
+            RECORD_ACCESS_CONTROL_POINT_UUID,
+            CLIENT_CHARACTERISTIC_CONFIG_UUID,
+            fromByteArray(CCCD_ENABLE_INDICATIONS),
+          ),
+        );
+        if (settled) return;
 
-      const writeCommand = () =>
-        device.writeCharacteristicWithResponseForService(
+        // 2. Attach the listener. RACP is indicate-only (unlike Glucose
+        // Measurement, which is notify-only) per the Glucose Service spec —
+        // explicit here rather than left to the library's property-based
+        // auto-detection, since the CCCD is already confirmed enabled above.
+        racpSub = device.monitorCharacteristicForService(
           GLUCOSE_SERVICE_UUID,
           RECORD_ACCESS_CONTROL_POINT_UUID,
-          fromByteArray(buildReportAllRecordsCommand()),
+          (error, characteristic) => {
+            if (settled) return;
+            if (error) {
+              if (isOperationCancelledError(error)) return;
+              finish(() => reject(error));
+              return;
+            }
+            if (!characteristic?.value) return;
+            const response = parseRacpResponse(toByteArray(characteristic.value));
+            if (
+              response.responseCode === RacpResponseCode.Success ||
+              response.responseCode === RacpResponseCode.NoRecordsFound
+            ) {
+              finish(() => resolve());
+            } else {
+              finish(() => reject(new Error(`Meter reported: ${describeRacpResponseCode(response.responseCode)}`)));
+            }
+          },
+          undefined,
+          'indication',
         );
 
-      try {
-        await writeCommand();
-      } catch (firstError) {
-        await delay(BOND_RETRY_DELAY_MS);
-        if (settled) return;
-        try {
-          await writeCommand();
-        } catch (secondError) {
-          finish(() => reject(secondError));
-        }
+        // 3. Only now write the actual command — the CCCD write above is
+        // confirmed complete, so this can't race it.
+        await writeWithBondRetry(() =>
+          device.writeCharacteristicWithResponseForService(
+            GLUCOSE_SERVICE_UUID,
+            RECORD_ACCESS_CONTROL_POINT_UUID,
+            fromByteArray(buildReportAllRecordsCommand()),
+          ),
+        );
+      } catch (error) {
+        finish(() => reject(error as Error));
       }
     })();
   });
