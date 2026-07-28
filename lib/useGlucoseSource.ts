@@ -5,9 +5,11 @@ import type { GlucoseReading } from './glucose';
 
 const MAX_HISTORY_POINTS = 500;
 
-// How far back to hydrate from the local DB on mount. Matches the
-// retention window in lib/db/glucoseReadings.ts — there's nothing older
-// than this persisted anyway.
+// How far back to hydrate from the local DB on mount. Deliberately much
+// shorter than glucose_readings' own 90-day retention (lib/db/glucoseReadings.ts)
+// — this only feeds the short live trend chart and MAX_HISTORY_POINTS
+// below, not the Trends screen, which queries the DB directly for
+// whatever longer window it needs.
 const HYDRATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // Single shared "current BG" + history state, fed by any number of

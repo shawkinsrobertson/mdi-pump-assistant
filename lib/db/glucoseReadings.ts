@@ -60,10 +60,14 @@ function fromRow(row: GlucoseReadingRow): GlucoseReading {
   };
 }
 
-// Bounds table growth — 24h is generously more than IOB (4h) or COB (6h)
-// lookback ever need, plus margin for the delta-averaging windows inside
-// glucose-get-last.js (up to ~42.5 minutes back).
-const RETENTION_MS = 24 * 60 * 60 * 1000;
+// 90 days — the oref0 orchestration (IOB/COB/autosens) only ever needs a
+// day's worth of history at most, but the Trends screen's Time in Range
+// and Ambulatory Glucose Profile need raw readings over 7/30/90-day
+// windows to compute from (an explicit choice over building separate
+// daily/hourly aggregates — see AGENTS.md). At typical CGM cadence
+// (5min) this is ~26,000 rows / a few MB; pruned on every write below so
+// it never grows past this window regardless of how long the app runs.
+const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
 export async function insertReadings(source: string, readings: GlucoseReading[]): Promise<void> {
   if (readings.length === 0) return;

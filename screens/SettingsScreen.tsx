@@ -16,6 +16,8 @@ export function SettingsScreen() {
   const [dia, setDia] = useState('');
   const [penIncrement, setPenIncrement] = useState('1');
   const [maxIOB, setMaxIOB] = useState('');
+  const [rangeLow, setRangeLow] = useState('70');
+  const [rangeHigh, setRangeHigh] = useState('180');
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -26,6 +28,8 @@ export function SettingsScreen() {
     setDia(settings.dia?.toString() ?? '');
     setPenIncrement(settings.penIncrement.toString());
     setMaxIOB(settings.maxIOB?.toString() ?? '');
+    setRangeLow(settings.rangeLow.toString());
+    setRangeHigh(settings.rangeHigh.toString());
   }, [loaded, settings]);
 
   const handleSave = () => {
@@ -36,6 +40,8 @@ export function SettingsScreen() {
       dia: numOrNull(dia),
       penIncrement: numOrNull(penIncrement) ?? 1,
       maxIOB: numOrNull(maxIOB),
+      rangeLow: numOrNull(rangeLow) ?? 70,
+      rangeHigh: numOrNull(rangeHigh) ?? 180,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -60,6 +66,16 @@ export function SettingsScreen() {
         label="Max IOB (units) — insulin-on-board safety cap for predictions"
         value={maxIOB}
         onChangeText={setMaxIOB}
+      />
+      <Field
+        label="Time in Range — low threshold (mg/dL)"
+        value={rangeLow}
+        onChangeText={setRangeLow}
+      />
+      <Field
+        label="Time in Range — high threshold (mg/dL)"
+        value={rangeHigh}
+        onChangeText={setRangeHigh}
       />
 
       <Pressable style={styles.button} onPress={handleSave}>

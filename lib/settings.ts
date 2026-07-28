@@ -16,6 +16,16 @@ export interface Settings {
   // tuning constant, so it ships null/required like the clinical fields
   // above rather than inheriting one of oref0's own defaults.
   maxIOB: number | null;
+  // Time in Range display thresholds (Trends screen). Unlike the fields
+  // above, this isn't a personal dosing parameter — it's a reporting
+  // convention, and 70/180 mg/dL is the published international
+  // consensus range (Battelino et al. 2019, adopted by ADA/EASD/ISPAD and
+  // used as the default in virtually every CGM report — Dexcom Clarity,
+  // LibreView, Nightscout). Shipping that as the default here is using a
+  // published external standard, not inventing a clinical value; still
+  // user-adjustable since a clinician may specify a different range.
+  rangeLow: number;
+  rangeHigh: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,6 +35,8 @@ export const DEFAULT_SETTINGS: Settings = {
   dia: null,
   penIncrement: 1,
   maxIOB: null,
+  rangeLow: 70,
+  rangeHigh: 180,
 };
 
 const STORAGE_KEY = 'app-settings';
