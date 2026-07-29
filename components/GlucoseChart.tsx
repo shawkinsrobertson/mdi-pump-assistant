@@ -36,9 +36,10 @@ const MARKER_SIZE = 7;
 export const CHART_RIGHT_PADDING_RATIO = PADDING.right / WIDTH;
 
 // Vertical gridline spacing, keyed by the selected window — wider windows
-// use coarser intervals so labels never crowd together, while the 3h
-// default gets the fine-grained 30-minute marks the user asked for.
-const GRID_INTERVAL_MIN: Record<number, number> = { 3: 30, 6: 60, 12: 120, 24: 240 };
+// use coarser intervals so labels never crowd together. The 3h default
+// was originally 30min, but that only left room for 10pt labels; hourly
+// marks give the labels enough width to read at >=14pt instead.
+const GRID_INTERVAL_MIN: Record<number, number> = { 3: 60, 6: 60, 12: 120, 24: 240 };
 
 // Renders each Quick Action marker shape at a fixed baseline just above
 // the x-axis, rather than at its glucose value — keeps markers legible
@@ -158,9 +159,9 @@ export function GlucoseChart({
           <SvgText
             key={`vlabel-${t}`}
             x={x(t)}
-            y={HEIGHT - PADDING.bottom + 16}
+            y={HEIGHT - PADDING.bottom + 20}
             textAnchor="middle"
-            fontSize={10}
+            fontSize={14}
             fill={COLORS.muted}
           >
             {formatTime(new Date(t), timeFormat)}
