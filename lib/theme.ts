@@ -70,6 +70,20 @@ export const iconSize = {
   xl: 40,
 } as const;
 
+// Quick Action marker styles — one per logged-action type, shared
+// between each Quick Action button's icon color and its glucose-chart
+// timeline marker shape, so the two stay visually coherent per the
+// design spec ("quick action button icons should be updated with
+// corresponding colored shape").
+export type MarkerShape = 'circle' | 'diamond' | 'triangle' | 'square';
+
+export const quickActionStyles: Record<'carbs' | 'insulin' | 'activity' | 'note', { color: string; shape: MarkerShape }> = {
+  carbs: { color: '#F59E0B', shape: 'circle' },
+  insulin: { color: '#054AE1', shape: 'diamond' },
+  activity: { color: '#7C3AED', shape: 'triangle' },
+  note: { color: '#6B7280', shape: 'square' },
+};
+
 // White-card-with-shadow look used on the Dashboard reading card —
 // requested for Settings/Trends too, replacing the flat gray-fill card.
 export const cardShadow: ViewStyle = Platform.select({

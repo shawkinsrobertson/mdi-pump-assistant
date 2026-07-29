@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { updateActivity, type ActivityIntensity } from '../lib/db/activities';
 import { updateBasalDose } from '../lib/db/basalDoses';
+import { updateNoteEntry } from '../lib/db/noteEntries';
 import { updateTreatment, type EventType } from '../lib/db/treatments';
 import type { LogEntry } from '../lib/logbookEntry';
 import type { LongActingInsulinType } from '../lib/mdi/basalCurve';
@@ -19,6 +21,11 @@ const BASAL_TYPES: { value: LongActingInsulinType; label: string }[] = [
   { value: 'detemir', label: 'Detemir' },
   { value: 'degludec', label: 'Degludec' },
 ];
+const INTENSITIES: { value: ActivityIntensity; label: string }[] = [
+  { value: 'low', label: 'Low' },
+  { value: 'med', label: 'Medium' },
+  { value: 'high', label: 'High' },
+];
 
 // Edit modal for an existing Logbook entry — covers both entry kinds
 // (bolus/correction treatment, or basal dose). "Add notes" from the spec
@@ -31,6 +38,9 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
   const [carbs, setCarbs] = useState('');
   const [basalType, setBasalType] = useState<LongActingInsulinType>('glargine');
   const [units, setUnits] = useState('');
+  const [intensity, setIntensity] = useState<ActivityIntensity>('low');
+  const [duration, setDuration] = useState('');
+  const [noteText, setNoteText] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,10 +53,15 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
       setInsulin(entry.treatment.insulin?.toString() ?? '');
       setCarbs(entry.treatment.carbs?.toString() ?? '');
       setNotes(entry.treatment.notes ?? '');
-    } else {
+    } else if (entry.kind === 'basal') {
       setBasalType(entry.dose.type);
       setUnits(entry.dose.units.toString());
       setNotes(entry.dose.notes ?? '');
+    } else if (entry.kind === 'activity') {
+      setIntensity(entry.activity.intensity);
+      setDuration(entry.activity.durationMinutes?.toString() ?? '');
+    } else {
+      setNoteText(entry.note.text);
     }
   }, [entry]);
 
@@ -64,13 +79,26 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
           carbs: Number.isFinite(carbsNum) ? carbsNum : null,
           notes: notes.trim() === '' ? null : notes.trim(),
         });
-      } else {
+      } else if (entry.kind === 'basal') {
         const unitsNum = parseFloat(units) || 0;
         await updateBasalDose(entry.dose.id, {
           type: basalType,
           units: unitsNum,
           notes: notes.trim() === '' ? null : notes.trim(),
         });
+      } else if (entry.kind === 'activity') {
+        const durationNum = parseFloat(duration);
+        await updateActivity(entry.activity.id, {
+          intensity,
+          durationMinutes: Number.isFinite(durationNum) && durationNum > 0 ? durationNum : null,
+        });
+      } else {
+        if (noteText.trim() === '') {
+          setError('Note text can\'t be empty.');
+          setSaving(false);
+          return;
+        }
+        await updateNoteEntry(entry.note.id, { text: noteText.trim() });
       }
       onSaved();
       onClose();
@@ -79,7 +107,7 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
     } finally {
       setSaving(false);
     }
-  }, [entry, eventType, insulin, carbs, basalType, units, notes, onSaved, onClose]);
+  }, [entry, eventType, insulin, carbs, basalType, units, intensity, duration, noteText, notes, onSaved, onClose]);
 
   const handleSave = useCallback(() => {
     Alert.alert('Save changes?', 'This will update the logged entry.', [
@@ -101,7 +129,7 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
           <View style={styles.headerSpacer} />
         </View>
 
-        {entry.kind === 'treatment' ? (
+        {entry.kind === 'treatment' && (
           <>
             <View style={styles.toggleRow}>
               {TREATMENT_TYPES.map((t) => (
@@ -119,7 +147,9 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
             <Field label="Insulin (U)" value={insulin} onChangeText={setInsulin} />
             <Field label="Carbs (g)" value={carbs} onChangeText={setCarbs} />
           </>
-        ) : (
+        )}
+
+        {entry.kind === 'basal' && (
           <>
             <View style={styles.toggleRow}>
               {BASAL_TYPES.map((t) => (
@@ -136,17 +166,50 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
           </>
         )}
 
-        <View style={styles.field}>
-          <Text style={styles.label}>Notes</Text>
-          <TextInput
-            style={[styles.input, styles.notesInput]}
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            placeholder="Add a note…"
-            placeholderTextColor={colors.text.placeholder}
-          />
-        </View>
+        {entry.kind === 'activity' && (
+          <>
+            <View style={styles.toggleRow}>
+              {INTENSITIES.map((t) => (
+                <Pressable
+                  key={t.value}
+                  style={[styles.toggleButton, intensity === t.value && styles.toggleButtonActive]}
+                  onPress={() => setIntensity(t.value)}
+                >
+                  <Text style={[styles.toggleText, intensity === t.value && styles.toggleTextActive]}>{t.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Field label="Duration (minutes)" value={duration} onChangeText={setDuration} />
+          </>
+        )}
+
+        {entry.kind === 'note' && (
+          <View style={styles.field}>
+            <Text style={styles.label}>Note</Text>
+            <TextInput
+              style={[styles.input, styles.notesInput]}
+              value={noteText}
+              onChangeText={setNoteText}
+              multiline
+              placeholder="What's going on?"
+              placeholderTextColor={colors.text.placeholder}
+            />
+          </View>
+        )}
+
+        {(entry.kind === 'treatment' || entry.kind === 'basal') && (
+          <View style={styles.field}>
+            <Text style={styles.label}>Notes</Text>
+            <TextInput
+              style={[styles.input, styles.notesInput]}
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+              placeholder="Add a note…"
+              placeholderTextColor={colors.text.placeholder}
+            />
+          </View>
+        )}
 
         {error && <Text style={styles.error}>{error}</Text>}
 

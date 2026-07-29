@@ -1,14 +1,25 @@
-import { useState } from 'react';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityLogModal } from '../components/ActivityLogModal';
 import { BasalDoseModal } from '../components/BasalDoseModal';
 import { BleMeterModal } from '../components/BleMeterModal';
-import { GlucoseChart } from '../components/GlucoseChart';
+import { CarbsLogModal } from '../components/CarbsLogModal';
+import { GlucoseChart, type ChartMarker } from '../components/GlucoseChart';
+import { InsulinLogModal } from '../components/InsulinLogModal';
+import { NotesLogModal } from '../components/NotesLogModal';
 import { PredictionModal } from '../components/PredictionModal';
 import { QuickLogModal } from '../components/QuickLogModal';
 import { Card } from '../components/ui/Card';
+import { getRecentActivities } from '../lib/db/activities';
+import { getRecentNoteEntries } from '../lib/db/noteEntries';
+import { getRecentTreatments } from '../lib/db/treatments';
 import { useGlucose } from '../lib/GlucoseContext';
 import { arrowForDirection, bgColor, formatClockTime, isStale } from '../lib/glucose';
-import { colors, radius, spacing } from '../lib/theme';
+import { colors, quickActionStyles, radius, spacing } from '../lib/theme';
+
+const MARKER_FETCH_COUNT = 50;
 
 export function DashboardScreen() {
   const { current, history, xdripStatus, xdripError, reportBleLiveReading, reportBleHistorySync } = useGlucose();
@@ -16,6 +27,43 @@ export function DashboardScreen() {
   const [quickLogVisible, setQuickLogVisible] = useState(false);
   const [basalDoseVisible, setBasalDoseVisible] = useState(false);
   const [predictionVisible, setPredictionVisible] = useState(false);
+  const [carbsVisible, setCarbsVisible] = useState(false);
+  const [insulinVisible, setInsulinVisible] = useState(false);
+  const [activityVisible, setActivityVisible] = useState(false);
+  const [notesVisible, setNotesVisible] = useState(false);
+  const [markers, setMarkers] = useState<ChartMarker[]>([]);
+
+  const refetchMarkers = useCallback(() => {
+    Promise.all([
+      getRecentTreatments(MARKER_FETCH_COUNT),
+      getRecentActivities(MARKER_FETCH_COUNT),
+      getRecentNoteEntries(MARKER_FETCH_COUNT),
+    ])
+      .then(([treatments, activities, notes]) => {
+        const treatmentMarkers: ChartMarker[] = treatments.map((t) => ({
+          time: new Date(t.createdAt).getTime(),
+          ...(t.carbs != null ? quickActionStyles.carbs : quickActionStyles.insulin),
+        }));
+        const activityMarkers: ChartMarker[] = activities.map((a) => ({
+          time: new Date(a.loggedAt).getTime(),
+          ...quickActionStyles.activity,
+        }));
+        const noteMarkers: ChartMarker[] = notes.map((n) => ({
+          time: new Date(n.loggedAt).getTime(),
+          ...quickActionStyles.note,
+        }));
+        setMarkers([...treatmentMarkers, ...activityMarkers, ...noteMarkers]);
+      })
+      .catch(() => {
+        // Non-critical — markers just won't show for this refresh.
+      });
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refetchMarkers();
+    }, [refetchMarkers]),
+  );
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -37,7 +85,7 @@ export function DashboardScreen() {
             </View>
 
             <View style={styles.chartWrap}>
-              <GlucoseChart history={history} />
+              <GlucoseChart history={history} markers={markers} />
             </View>
           </>
         )}
@@ -63,9 +111,39 @@ export function DashboardScreen() {
         )}
       </Card>
 
+      <Card style={styles.quickActionsCard}>
+        <Text style={styles.cardTitle}>Quick Actions</Text>
+        <View style={styles.quickActionsRow}>
+          <QuickActionButton
+            label="Carbs"
+            color={quickActionStyles.carbs.color}
+            onPress={() => setCarbsVisible(true)}
+            icon={<Ionicons name="nutrition-outline" size={iconSizeForQuickAction} color={quickActionStyles.carbs.color} />}
+          />
+          <QuickActionButton
+            label="Insulin"
+            color={quickActionStyles.insulin.color}
+            onPress={() => setInsulinVisible(true)}
+            icon={<MaterialCommunityIcons name="needle" size={iconSizeForQuickAction} color={quickActionStyles.insulin.color} />}
+          />
+          <QuickActionButton
+            label="Activity"
+            color={quickActionStyles.activity.color}
+            onPress={() => setActivityVisible(true)}
+            icon={<Ionicons name="walk-outline" size={iconSizeForQuickAction} color={quickActionStyles.activity.color} />}
+          />
+          <QuickActionButton
+            label="Notes"
+            color={quickActionStyles.note.color}
+            onPress={() => setNotesVisible(true)}
+            icon={<Ionicons name="create-outline" size={iconSizeForQuickAction} color={quickActionStyles.note.color} />}
+          />
+        </View>
+      </Card>
+
       <View style={styles.actionsRow}>
         <Pressable style={styles.actionButton} onPress={() => setQuickLogVisible(true)}>
-          <Text style={styles.actionButtonText}>Quick Log</Text>
+          <Text style={styles.actionButtonText}>Bolus Wizard</Text>
         </Pressable>
         <Pressable style={styles.actionButton} onPress={() => setBleModalVisible(true)}>
           <Text style={styles.actionButtonText}>Connect meter</Text>
@@ -90,10 +168,36 @@ export function DashboardScreen() {
         visible={quickLogVisible}
         onClose={() => setQuickLogVisible(false)}
         currentBG={current?.sgv ?? null}
+        onLogged={refetchMarkers}
       />
       <BasalDoseModal visible={basalDoseVisible} onClose={() => setBasalDoseVisible(false)} />
       <PredictionModal visible={predictionVisible} onClose={() => setPredictionVisible(false)} />
+      <CarbsLogModal visible={carbsVisible} onClose={() => setCarbsVisible(false)} onLogged={refetchMarkers} />
+      <InsulinLogModal visible={insulinVisible} onClose={() => setInsulinVisible(false)} onLogged={refetchMarkers} />
+      <ActivityLogModal visible={activityVisible} onClose={() => setActivityVisible(false)} onLogged={refetchMarkers} />
+      <NotesLogModal visible={notesVisible} onClose={() => setNotesVisible(false)} onLogged={refetchMarkers} />
     </ScrollView>
+  );
+}
+
+const iconSizeForQuickAction = 26;
+
+function QuickActionButton({
+  label,
+  color,
+  icon,
+  onPress,
+}: {
+  label: string;
+  color: string;
+  icon: ReactNode;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={styles.quickActionButton} onPress={onPress}>
+      {icon}
+      <Text style={[styles.quickActionLabel, { color }]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -111,6 +215,29 @@ const styles = StyleSheet.create({
   readingCard: {
     width: '100%',
     alignItems: 'center',
+  },
+  quickActionsCard: {
+    width: '100%',
+    marginTop: spacing.base,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text.primary,
+    marginBottom: spacing.md,
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  quickActionButton: {
+    alignItems: 'center',
+    gap: spacing.xs,
+    flex: 1,
+  },
+  quickActionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   label: {
     fontSize: 14,

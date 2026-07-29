@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { DuplicateBasalDoseError, insertBasalDose } from '../lib/db/basalDoses';
 import type { LongActingInsulinType } from '../lib/mdi/basalCurve';
 
@@ -23,7 +23,7 @@ export function BasalDoseModal({ visible, onClose }: BasalDoseModalProps) {
 
   const unitsNum = parseFloat(units) || 0;
 
-  const handleSubmit = useCallback(async () => {
+  const commit = useCallback(async () => {
     setSubmitting(true);
     setError(null);
     try {
@@ -41,6 +41,13 @@ export function BasalDoseModal({ visible, onClose }: BasalDoseModalProps) {
       setSubmitting(false);
     }
   }, [type, unitsNum]);
+
+  const handleSubmit = useCallback(() => {
+    Alert.alert('Log this basal dose?', `${unitsNum} U ${type}`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log', onPress: commit },
+    ]);
+  }, [commit, unitsNum, type]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>

@@ -3,7 +3,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BleMeterModal } from '../components/BleMeterModal';
 import { LogbookEntryModal } from '../components/LogbookEntryModal';
+import { deleteActivity, getRecentActivities, type ActivityRecord } from '../lib/db/activities';
 import { deleteBasalDose, getRecentBasalDoses, type BasalDoseRecord } from '../lib/db/basalDoses';
+import { deleteNoteEntry, getRecentNoteEntries, type NoteEntryRecord } from '../lib/db/noteEntries';
 import { deleteTreatment, getRecentTreatments, type Treatment } from '../lib/db/treatments';
 import { useGlucose } from '../lib/GlucoseContext';
 import { logEntryId, logEntryTime, type LogEntry } from '../lib/logbookEntry';
@@ -11,10 +13,17 @@ import { colors, spacing } from '../lib/theme';
 
 const RECENT_COUNT = 50;
 
-function mergeEntries(treatments: Treatment[], basalDoses: BasalDoseRecord[]): LogEntry[] {
+function mergeEntries(
+  treatments: Treatment[],
+  basalDoses: BasalDoseRecord[],
+  activities: ActivityRecord[],
+  notes: NoteEntryRecord[],
+): LogEntry[] {
   const entries: LogEntry[] = [
     ...treatments.map((treatment): LogEntry => ({ kind: 'treatment', treatment })),
     ...basalDoses.map((dose): LogEntry => ({ kind: 'basal', dose })),
+    ...activities.map((activity): LogEntry => ({ kind: 'activity', activity })),
+    ...notes.map((note): LogEntry => ({ kind: 'note', note })),
   ];
   return entries.sort((a, b) => logEntryTime(b).localeCompare(logEntryTime(a)));
 }
@@ -44,12 +53,46 @@ function groupByDay(entries: LogEntry[]): { title: string; data: LogEntry[] }[] 
   return sections;
 }
 
+const INTENSITY_LABELS: Record<ActivityRecord['intensity'], string> = { low: 'Low', med: 'Medium', high: 'High' };
+
 function entryLabel(entry: LogEntry): string {
-  return entry.kind === 'treatment' ? entry.treatment.eventType : `Basal — ${entry.dose.type}`;
+  switch (entry.kind) {
+    case 'treatment':
+      return entry.treatment.eventType;
+    case 'basal':
+      return `Basal — ${entry.dose.type}`;
+    case 'activity':
+      return `Activity — ${INTENSITY_LABELS[entry.activity.intensity]}`;
+    case 'note':
+      return 'Note';
+  }
 }
 
+function entryDetail(entry: LogEntry): string {
+  switch (entry.kind) {
+    case 'treatment':
+      return [
+        entry.treatment.insulin != null ? `${entry.treatment.insulin} U` : null,
+        entry.treatment.carbs != null ? `${entry.treatment.carbs} g carbs` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    case 'basal':
+      return `${entry.dose.units} U`;
+    case 'activity':
+      return entry.activity.durationMinutes != null ? `${entry.activity.durationMinutes} min` : '';
+    case 'note':
+      return entry.note.text;
+  }
+}
+
+// Only treatments/basal doses carry a separate "notes" annotation field —
+// an activity has no notes field, and a standalone note entry's text is
+// already shown as its detail line, not duplicated here.
 function entryNotes(entry: LogEntry): string | null {
-  return entry.kind === 'treatment' ? entry.treatment.notes : entry.dose.notes;
+  if (entry.kind === 'treatment') return entry.treatment.notes;
+  if (entry.kind === 'basal') return entry.dose.notes;
+  return null;
 }
 
 // Simple text search over type/date/notes — not a date-range picker (no
@@ -60,6 +103,7 @@ function matchesQuery(entry: LogEntry, query: string): boolean {
   const q = query.trim().toLowerCase();
   const haystack = [
     entryLabel(entry),
+    entryDetail(entry),
     entryNotes(entry) ?? '',
     new Date(logEntryTime(entry)).toLocaleString(),
   ]
@@ -72,6 +116,8 @@ export function LogbookScreen() {
   const { reportBleLiveReading, reportBleHistorySync } = useGlucose();
   const [treatments, setTreatments] = useState<Treatment[] | null>(null);
   const [basalDoses, setBasalDoses] = useState<BasalDoseRecord[] | null>(null);
+  const [activities, setActivities] = useState<ActivityRecord[] | null>(null);
+  const [notes, setNotes] = useState<NoteEntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null);
@@ -79,10 +125,17 @@ export function LogbookScreen() {
 
   const refetch = useCallback(() => {
     setError(null);
-    return Promise.all([getRecentTreatments(RECENT_COUNT), getRecentBasalDoses(RECENT_COUNT)])
-      .then(([treatmentRows, basalDoseRows]) => {
+    return Promise.all([
+      getRecentTreatments(RECENT_COUNT),
+      getRecentBasalDoses(RECENT_COUNT),
+      getRecentActivities(RECENT_COUNT),
+      getRecentNoteEntries(RECENT_COUNT),
+    ])
+      .then(([treatmentRows, basalDoseRows, activityRows, noteRows]) => {
         setTreatments(treatmentRows);
         setBasalDoses(basalDoseRows);
+        setActivities(activityRows);
+        setNotes(noteRows);
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : String(e));
@@ -104,9 +157,14 @@ export function LogbookScreen() {
     }, [refetch]),
   );
 
+  const loaded = treatments !== null && basalDoses !== null && activities !== null && notes !== null;
+
   const filtered = useMemo(
-    () => mergeEntries(treatments ?? [], basalDoses ?? []).filter((e) => matchesQuery(e, query)),
-    [treatments, basalDoses, query],
+    () =>
+      mergeEntries(treatments ?? [], basalDoses ?? [], activities ?? [], notes ?? []).filter((e) =>
+        matchesQuery(e, query),
+      ),
+    [treatments, basalDoses, activities, notes, query],
   );
 
   const handleDelete = useCallback(
@@ -120,8 +178,12 @@ export function LogbookScreen() {
             try {
               if (entry.kind === 'treatment') {
                 await deleteTreatment(entry.treatment.id);
-              } else {
+              } else if (entry.kind === 'basal') {
                 await deleteBasalDose(entry.dose.id);
+              } else if (entry.kind === 'activity') {
+                await deleteActivity(entry.activity.id);
+              } else {
+                await deleteNoteEntry(entry.note.id);
               }
               refetch();
             } catch (e) {
@@ -151,11 +213,11 @@ export function LogbookScreen() {
       />
 
       {error && <Text style={styles.error}>Couldn't load entries: {error}</Text>}
-      {!error && (treatments === null || basalDoses === null) && <Text style={styles.message}>Loading…</Text>}
-      {!error && treatments?.length === 0 && basalDoses?.length === 0 && (
+      {!error && !loaded && <Text style={styles.message}>Loading…</Text>}
+      {!error && loaded && filtered.length === 0 && query.trim() === '' && (
         <Text style={styles.message}>Nothing logged yet.</Text>
       )}
-      {!error && treatments !== null && basalDoses !== null && filtered.length === 0 && query.trim() !== '' && (
+      {!error && loaded && filtered.length === 0 && query.trim() !== '' && (
         <Text style={styles.message}>No entries match "{query}".</Text>
       )}
 
@@ -174,16 +236,7 @@ export function LogbookScreen() {
               <Text style={styles.eventType}>{entryLabel(item)}</Text>
               <Text style={styles.time}>{new Date(logEntryTime(item)).toLocaleString()}</Text>
             </View>
-            <Text style={styles.detail}>
-              {item.kind === 'treatment'
-                ? [
-                    item.treatment.insulin != null ? `${item.treatment.insulin} U` : null,
-                    item.treatment.carbs != null ? `${item.treatment.carbs} g carbs` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')
-                : `${item.dose.units} U`}
-            </Text>
+            {entryDetail(item) !== '' && <Text style={styles.detail}>{entryDetail(item)}</Text>}
             {entryNotes(item) && <Text style={styles.noteText}>{entryNotes(item)}</Text>}
             <View style={styles.actionsRow}>
               <Pressable onPress={() => setEditingEntry(item)}>

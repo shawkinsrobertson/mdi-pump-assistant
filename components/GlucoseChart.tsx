@@ -1,21 +1,56 @@
 import { View } from 'react-native';
-import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Line, Path, Polygon, Rect, Text as SvgText } from 'react-native-svg';
 import { bgColor, COLORS } from '../lib/glucose';
+import type { MarkerShape } from '../lib/theme';
 
 export interface ChartPoint {
   time: number; // epoch ms
   sgv: number;
 }
 
+export interface ChartMarker {
+  time: number; // epoch ms
+  color: string;
+  shape: MarkerShape;
+}
+
 interface GlucoseChartProps {
   history: ChartPoint[]; // oldest → newest
+  markers?: ChartMarker[]; // logged Quick Actions within the visible window
 }
 
 const WIDTH = 800;
 const HEIGHT = 280;
 const PADDING = { top: 24, right: 24, bottom: 32, left: 40 };
+const MARKER_SIZE = 7;
 
-export function GlucoseChart({ history }: GlucoseChartProps) {
+// Renders each Quick Action marker shape at a fixed baseline just above
+// the x-axis, rather than at its glucose value — keeps markers legible
+// regardless of where the BG line is at that moment.
+function MarkerShapeGlyph({ shape, cx, cy, color }: { shape: MarkerShape; cx: number; cy: number; color: string }) {
+  switch (shape) {
+    case 'circle':
+      return <Circle cx={cx} cy={cy} r={MARKER_SIZE / 2} fill={color} />;
+    case 'square':
+      return <Rect x={cx - MARKER_SIZE / 2} y={cy - MARKER_SIZE / 2} width={MARKER_SIZE} height={MARKER_SIZE} fill={color} />;
+    case 'diamond':
+      return (
+        <Polygon
+          points={`${cx},${cy - MARKER_SIZE / 2} ${cx + MARKER_SIZE / 2},${cy} ${cx},${cy + MARKER_SIZE / 2} ${cx - MARKER_SIZE / 2},${cy}`}
+          fill={color}
+        />
+      );
+    case 'triangle':
+      return (
+        <Polygon
+          points={`${cx},${cy - MARKER_SIZE / 2} ${cx + MARKER_SIZE / 2},${cy + MARKER_SIZE / 2} ${cx - MARKER_SIZE / 2},${cy + MARKER_SIZE / 2}`}
+          fill={color}
+        />
+      );
+  }
+}
+
+export function GlucoseChart({ history, markers = [] }: GlucoseChartProps) {
   if (history.length === 0) return null;
 
   const last = history[history.length - 1];
@@ -29,6 +64,8 @@ export function GlucoseChart({ history }: GlucoseChartProps) {
     PADDING.left + ((t - minT) / Math.max(1, maxT - minT)) * (WIDTH - PADDING.left - PADDING.right);
   const y = (v: number) =>
     PADDING.top + (1 - (v - minV) / (maxV - minV)) * (HEIGHT - PADDING.top - PADDING.bottom);
+  const markerBaselineY = HEIGHT - PADDING.bottom - 6;
+  const visibleMarkers = markers.filter((m) => m.time >= minT && m.time <= maxT);
 
   const linePath = history
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.time).toFixed(1)},${y(p.sgv).toFixed(1)}`)
@@ -90,6 +127,10 @@ export function GlucoseChart({ history }: GlucoseChartProps) {
         />
 
         <Circle cx={x(last.time)} cy={y(last.sgv)} r={5} fill={lineColor} />
+
+        {visibleMarkers.map((m, i) => (
+          <MarkerShapeGlyph key={`marker-${i}`} shape={m.shape} cx={x(m.time)} cy={markerBaselineY} color={m.color} />
+        ))}
       </Svg>
     </View>
   );

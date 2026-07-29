@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { computeBolusWizard } from '../lib/bolus';
 import { DuplicateTreatmentError, getTreatmentsSince, insertTreatment, type EventType } from '../lib/db/treatments';
 import { computeIOB } from '../lib/iob';
@@ -9,9 +9,10 @@ interface QuickLogModalProps {
   visible: boolean;
   onClose: () => void;
   currentBG: number | null;
+  onLogged?: () => void;
 }
 
-export function QuickLogModal({ visible, onClose, currentBG }: QuickLogModalProps) {
+export function QuickLogModal({ visible, onClose, currentBG, onLogged }: QuickLogModalProps) {
   const [settings, , settingsLoaded] = useSettings();
   const [logType, setLogType] = useState<EventType>('Meal Bolus');
   const [carbs, setCarbs] = useState('');
@@ -79,7 +80,7 @@ export function QuickLogModal({ visible, onClose, currentBG }: QuickLogModalProp
 
   const finalInsulin = edited ? parseFloat(insulinOverride) || 0 : (wizard?.suggested ?? 0);
 
-  const handleSubmit = useCallback(async () => {
+  const commit = useCallback(async () => {
     setSubmitting(true);
     setError(null);
     try {
@@ -94,6 +95,7 @@ export function QuickLogModal({ visible, onClose, currentBG }: QuickLogModalProp
       setEdited(false);
       setConfirmed(true);
       setTimeout(() => setConfirmed(false), 2000);
+      onLogged?.();
     } catch (e) {
       if (e instanceof DuplicateTreatmentError) {
         setError('That looks like a duplicate of what you just logged — not saved again.');
@@ -103,7 +105,18 @@ export function QuickLogModal({ visible, onClose, currentBG }: QuickLogModalProp
     } finally {
       setSubmitting(false);
     }
-  }, [logType, finalInsulin, carbsNum]);
+  }, [logType, finalInsulin, carbsNum, onLogged]);
+
+  const handleSubmit = useCallback(() => {
+    Alert.alert(
+      'Log this treatment?',
+      `${finalInsulin > 0 ? `${finalInsulin.toFixed(2)} U insulin` : ''}${finalInsulin > 0 && carbsNum > 0 ? ' · ' : ''}${carbsNum > 0 ? `${carbsNum} g carbs` : ''}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Log', onPress: commit },
+      ],
+    );
+  }, [commit, finalInsulin, carbsNum]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
