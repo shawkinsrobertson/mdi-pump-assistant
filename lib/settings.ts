@@ -26,6 +26,11 @@ export interface Settings {
   // user-adjustable since a clinician may specify a different range.
   rangeLow: number;
   rangeHigh: number;
+  // Endpoint the weekly background insight task (and the manual "Generate
+  // Insights Now" button on Trends) POSTs a structured summary payload
+  // to — see lib/tasks/insightTask.ts. No default: without one configured,
+  // insight generation is simply skipped rather than posting anywhere.
+  insightsWebhookUrl: string | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -37,6 +42,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxIOB: null,
   rangeLow: 70,
   rangeHigh: 180,
+  insightsWebhookUrl: null,
 };
 
 const STORAGE_KEY = 'app-settings';

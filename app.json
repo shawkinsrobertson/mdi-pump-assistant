@@ -8,7 +8,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.seamusrobertson.mdipumpassistant"
+      "bundleIdentifier": "com.seamusrobertson.mdipumpassistant",
+      "infoPlist": {
+        "UIBackgroundModes": ["fetch"]
+      }
     },
     "android": {
       "package": "com.seamusrobertson.mdipumpassistant",
@@ -23,7 +26,8 @@
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
       ]
     },
     "plugins": [

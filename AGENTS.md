@@ -544,3 +544,48 @@ requests —
     10pt to 14pt/semibold.
   - `formatClockTime()` (superseded by `formatMinutesAgo()`) was
     removed from `lib/glucose.ts` as dead code.
+
+**Chart gridline follow-up**: reduced the 3h window's vertical gridlines
+from 30min to 60min intervals (`GRID_INTERVAL_MIN` in `GlucoseChart.tsx`)
+specifically to free up horizontal room for larger time-axis labels —
+bumped 10pt → 14pt to match the Y-axis range labels, per feedback that
+the smaller font was hard to read.
+
+**Background AI insight generation** (new feature, not a follow-up):
+weekly (best-effort) background task that summarizes the last 7 days of
+local data (Time in Range, AGP stats, severe low/high counts, overnight
+low %, carb/insulin/activity/note counts — all real computed values, no
+pattern-detection ML/heuristics invented here) and POSTs it to a
+user-configured webhook (Settings > Integrations > AI Insights) for
+external LLM-generated insight text, storing whatever comes back for the
+Trends screen's "Patterns and Insights" card (previously a hardcoded
+"coming soon" placeholder) to display.
+  - `lib/insights/insightPayload.ts` (pure, tested) / `buildInsightPayload.ts`
+    (I/O shell) — same split as `predictionCore.ts`/`runPrediction.ts`.
+  - `lib/tasks/insightTask.ts` exports `runInsightGeneration(source)`,
+    shared verbatim by the `expo-task-manager` background task and the
+    Trends screen's "Generate Insights Now" button — no separate payload
+    path was built for scheduled vs. manual, and that same button is also
+    the dev-testing hook (no extra debug-only button needed).
+    `TaskManager.defineTask()` is called at module load via a side-effect
+    import in `index.ts` (not just `App.tsx`), since a headless JS
+    context can invoke the task without the component tree ever mounting.
+  - `lib/db/insights.ts` stores every run (`insertInsight`/
+    `getLatestInsight`) so Trends always has something to show even if
+    the background task last fired hours ago and the person hasn't
+    reopened the app since.
+  - New native modules (`expo-task-manager`, `expo-background-fetch`) —
+    **needs a dev-client rebuild** before this can run on-device, same
+    category as the BLE/notifications/navigator additions earlier in this
+    doc. Added `ios.infoPlist.UIBackgroundModes: ["fetch"]` and
+    `android.permission.RECEIVE_BOOT_COMPLETED` (for `startOnBoot`) to
+    `app.json`.
+  - Per Expo's own docs, `minimumInterval` is a floor the OS is free to
+    miss — iOS especially adapts real firing to the person's own usage
+    patterns over time, so irregular timing in testing is expected, not
+    a bug.
+  - The insight response shape is whatever the configured webhook
+    returns, not something this app defines — `extractInsightText()` in
+    `TrendsScreen.tsx` renders a `summary`/`text`/`message` field if
+    present, else falls back to the raw JSON, rather than assuming a
+    fixed schema from an external service this app doesn't control.

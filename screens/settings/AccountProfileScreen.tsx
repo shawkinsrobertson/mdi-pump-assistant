@@ -45,6 +45,7 @@ export function AccountProfileScreen() {
 
   const handleSave = () => {
     updateSettings({
+      ...settings,
       isf: numOrNull(isf),
       carbRatio: numOrNull(carbRatio),
       targetBG: numOrNull(targetBG),

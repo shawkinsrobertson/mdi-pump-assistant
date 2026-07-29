@@ -1,16 +1,37 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AgpChart } from '../components/AgpChart';
 import { Card } from '../components/ui/Card';
+import { getLatestInsight, type InsightRecord } from '../lib/db/insights';
 import { getReadingsSince } from '../lib/db/glucoseReadings';
 import type { GlucoseReading } from '../lib/glucose';
 import { useSettings } from '../lib/settings';
+import { runInsightGeneration } from '../lib/tasks/insightTask';
 import { colors, radius, spacing } from '../lib/theme';
 import { computeAgpBuckets, computeAgpSummary } from '../lib/trends/agp';
 import { computeTimeInRange } from '../lib/trends/timeInRange';
 import { TRENDS_WINDOWS, trendsWindowLabel, windowStartMs, type TrendsWindow } from '../lib/trends/window';
+
+// The webhook's response shape isn't controlled by this app (it's
+// whatever the configured n8n workflow returns), so this renders
+// defensively — common field names first, otherwise the raw JSON rather
+// than silently showing nothing.
+function extractInsightText(insight: unknown): string {
+  if (typeof insight === 'string') return insight;
+  if (insight && typeof insight === 'object') {
+    const obj = insight as Record<string, unknown>;
+    for (const key of ['summary', 'text', 'message', 'insight']) {
+      if (typeof obj[key] === 'string') return obj[key] as string;
+    }
+  }
+  return JSON.stringify(insight);
+}
+
+function formatInsightDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 type SummaryStat = 'median' | 'mean' | 'stdDev' | 'estimatedA1c';
 
@@ -26,13 +47,16 @@ function formatSummaryValue(stat: SummaryStat, value: number): string {
   return `${value.toFixed(1)} mg/dL`;
 }
 
-// Patterns/Insights (an LLM feature) is later work — see AGENTS.md.
 export function TrendsScreen() {
   const [settings, , settingsLoaded] = useSettings();
   const [window, setWindow] = useState<TrendsWindow>(7);
   const [readings, setReadings] = useState<GlucoseReading[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [summaryStat, setSummaryStat] = useState<SummaryStat>('median');
+  const [latestInsight, setLatestInsight] = useState<InsightRecord | null>(null);
+  const [insightLoaded, setInsightLoaded] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -54,6 +78,40 @@ export function TrendsScreen() {
       };
     }, [window, settingsLoaded]),
   );
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      getLatestInsight()
+        .then((record) => {
+          if (cancelled) return;
+          setLatestInsight(record);
+          setInsightLoaded(true);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setInsightLoaded(true); // no stored insight yet is not an error state
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
+
+  const handleGenerateInsights = useCallback(() => {
+    setGenerating(true);
+    setGenerateError(null);
+    runInsightGeneration('manual')
+      .then((didGenerate) => {
+        if (!didGenerate) {
+          setGenerateError('Add a webhook URL in Settings > Integrations first.');
+          return;
+        }
+        return getLatestInsight().then(setLatestInsight);
+      })
+      .catch((e) => setGenerateError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setGenerating(false));
+  }, []);
 
   const tir = useMemo(
     () => (readings ? computeTimeInRange(readings, settings.rangeLow, settings.rangeHigh) : null),
@@ -156,7 +214,36 @@ export function TrendsScreen() {
 
       <Card style={styles.card}>
         <Text style={styles.cardTitle}>Patterns and Insights</Text>
-        <Text style={styles.message}>Needs at least 7 days of data — coming soon.</Text>
+
+        {(!insightLoaded || !settingsLoaded) && <Text style={styles.message}>Loading…</Text>}
+
+        {insightLoaded && settingsLoaded && latestInsight === null && (
+          <Text style={styles.message}>
+            No insights generated yet. {settings.insightsWebhookUrl ? '' : 'Add a webhook URL in Settings > Integrations, then '}
+            tap below to generate one now.
+          </Text>
+        )}
+
+        {insightLoaded && latestInsight !== null && (
+          <>
+            <Text style={styles.insightDate}>Generated {formatInsightDate(latestInsight.generatedAt)}</Text>
+            <Text style={styles.insightText}>{extractInsightText(latestInsight.insight)}</Text>
+          </>
+        )}
+
+        {generateError && <Text style={styles.error}>{generateError}</Text>}
+
+        <Pressable
+          style={[styles.generateButton, generating && styles.generateButtonDisabled]}
+          disabled={generating}
+          onPress={handleGenerateInsights}
+        >
+          {generating ? (
+            <ActivityIndicator color={colors.text.inverse} />
+          ) : (
+            <Text style={styles.generateButtonText}>Generate Insights Now</Text>
+          )}
+        </Pressable>
       </Card>
     </ScrollView>
   );
@@ -274,5 +361,32 @@ const styles = StyleSheet.create({
   },
   toggleTextActive: {
     color: colors.text.inverse,
+  },
+  insightDate: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  insightText: {
+    fontSize: 15,
+    color: colors.text.primary,
+    lineHeight: 21,
+    marginBottom: 16,
+  },
+  generateButton: {
+    backgroundColor: colors.action.primaryBg,
+    borderRadius: radius.md,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  generateButtonDisabled: {
+    opacity: 0.6,
+  },
+  generateButtonText: {
+    color: colors.text.inverse,
+    fontWeight: '600',
+    fontSize: 14,
   },
 });
