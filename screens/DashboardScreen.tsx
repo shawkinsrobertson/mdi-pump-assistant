@@ -1,6 +1,6 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ActivityLogModal } from '../components/ActivityLogModal';
 import { BasalDoseModal } from '../components/BasalDoseModal';
@@ -18,12 +18,17 @@ import { getRecentNoteEntries } from '../lib/db/noteEntries';
 import { getRecentTreatments } from '../lib/db/treatments';
 import { useGlucose } from '../lib/GlucoseContext';
 import { arrowForDirection, bgColor, formatClockTime, isStale } from '../lib/glucose';
-import { colors, quickActionStyles, radius, spacing } from '../lib/theme';
+import { usePrediction } from '../lib/oref/usePrediction';
+import { quickActionStyles } from '../lib/theme';
+import { useTheme } from '../lib/ThemeContext';
 
 const MARKER_FETCH_COUNT = 50;
 
 export function DashboardScreen() {
   const { current, history, xdripStatus, xdripError, reportBleLiveReading, reportBleHistorySync } = useGlucose();
+  const { colors, spacing, radius, iconSize, fontScale } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, spacing, radius, fontScale), [colors, spacing, radius, fontScale]);
+
   const [bleModalVisible, setBleModalVisible] = useState(false);
   const [quickLogVisible, setQuickLogVisible] = useState(false);
   const [basalDoseVisible, setBasalDoseVisible] = useState(false);
@@ -34,6 +39,8 @@ export function DashboardScreen() {
   const [notesVisible, setNotesVisible] = useState(false);
   const [markers, setMarkers] = useState<ChartMarker[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
+
+  const prediction = usePrediction(refreshToken);
 
   const refetchMarkers = useCallback(() => {
     Promise.all([
@@ -62,8 +69,8 @@ export function DashboardScreen() {
   }, []);
 
   // Shared refresh for anything that changes after a log action: chart
-  // markers and the prediction callout (a new treatment/basal dose can
-  // change IOB/COB, which changes the suggestion).
+  // markers and the prediction callout/IOB-COB stat (a new treatment or
+  // basal dose can change IOB/COB, which changes the suggestion).
   const refreshAfterLog = useCallback(() => {
     refetchMarkers();
     setRefreshToken((t) => t + 1);
@@ -75,10 +82,28 @@ export function DashboardScreen() {
     }, [refreshAfterLog]),
   );
 
+  const iobCob = prediction.result?.status === 'ok' ? prediction.result : null;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.welcome}>Welcome, User</Text>
+
       <Card style={styles.readingCard}>
-        <Text style={styles.label}>CGM — xDrip+</Text>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.label}>CGM — xDrip+</Text>
+          {iobCob && (
+            <View style={styles.iobCobRow}>
+              <View style={styles.iobCobItem}>
+                <Text style={styles.iobCobLabel}>IOB</Text>
+                <Text style={styles.iobCobValue}>{iobCob.iob.toFixed(2)} U</Text>
+              </View>
+              <View style={styles.iobCobItem}>
+                <Text style={styles.iobCobLabel}>COB</Text>
+                <Text style={styles.iobCobValue}>{iobCob.mealCOB} g</Text>
+              </View>
+            </View>
+          )}
+        </View>
 
         {current === null && xdripStatus === 'loading' && <ActivityIndicator size="large" color={colors.text.label} />}
 
@@ -97,7 +122,12 @@ export function DashboardScreen() {
             <View style={styles.chartWrap}>
               <GlucoseChart history={history} markers={markers} />
             </View>
-            <PredictionCallout onPress={() => setPredictionVisible(true)} refreshToken={refreshToken} />
+            <PredictionCallout
+              onPress={() => setPredictionVisible(true)}
+              result={prediction.result}
+              error={prediction.error}
+              checked={prediction.checked}
+            />
           </>
         )}
 
@@ -129,25 +159,29 @@ export function DashboardScreen() {
             label="Carbs"
             color={quickActionStyles.carbs.color}
             onPress={() => setCarbsVisible(true)}
-            icon={<Ionicons name="nutrition-outline" size={iconSizeForQuickAction} color={quickActionStyles.carbs.color} />}
+            styles={styles}
+            icon={<Ionicons name="nutrition-outline" size={iconSize.base} color={quickActionStyles.carbs.color} />}
           />
           <QuickActionButton
             label="Insulin"
             color={quickActionStyles.insulin.color}
             onPress={() => setInsulinVisible(true)}
-            icon={<MaterialCommunityIcons name="needle" size={iconSizeForQuickAction} color={quickActionStyles.insulin.color} />}
+            styles={styles}
+            icon={<MaterialCommunityIcons name="needle" size={iconSize.base} color={quickActionStyles.insulin.color} />}
           />
           <QuickActionButton
             label="Activity"
             color={quickActionStyles.activity.color}
             onPress={() => setActivityVisible(true)}
-            icon={<Ionicons name="walk-outline" size={iconSizeForQuickAction} color={quickActionStyles.activity.color} />}
+            styles={styles}
+            icon={<Ionicons name="walk-outline" size={iconSize.base} color={quickActionStyles.activity.color} />}
           />
           <QuickActionButton
             label="Notes"
             color={quickActionStyles.note.color}
             onPress={() => setNotesVisible(true)}
-            icon={<Ionicons name="create-outline" size={iconSizeForQuickAction} color={quickActionStyles.note.color} />}
+            styles={styles}
+            icon={<Ionicons name="create-outline" size={iconSize.base} color={quickActionStyles.note.color} />}
           />
         </View>
       </Card>
@@ -191,18 +225,18 @@ export function DashboardScreen() {
   );
 }
 
-const iconSizeForQuickAction = 26;
-
 function QuickActionButton({
   label,
   color,
   icon,
   onPress,
+  styles,
 }: {
   label: string;
   color: string;
   icon: ReactNode;
   onPress: () => void;
+  styles: ReturnType<typeof makeStyles>;
 }) {
   return (
     <Pressable style={styles.quickActionButton} onPress={onPress}>
@@ -212,137 +246,178 @@ function QuickActionButton({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg.surface,
-  },
-  content: {
-    padding: spacing.xl,
-    paddingTop: 60,
-    paddingBottom: 120,
-    alignItems: 'center',
-  },
-  readingCard: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  quickActionsCard: {
-    width: '100%',
-    marginTop: spacing.base,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text.primary,
-    marginBottom: spacing.md,
-  },
-  quickActionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  quickActionButton: {
-    alignItems: 'center',
-    gap: spacing.xs,
-    flex: 1,
-  },
-  quickActionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  label: {
-    fontSize: 14,
-    color: colors.text.quaternary,
-    marginBottom: 16,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  glucose: {
-    fontSize: 96,
-    fontWeight: 'bold',
-  },
-  arrow: {
-    fontSize: 40,
-    fontWeight: '600',
-    color: '#111',
-    marginTop: 16,
-  },
-  unit: {
-    fontSize: 20,
-    color: '#555',
-    marginBottom: 12,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
-  },
-  detail: {
-    fontSize: 16,
-    color: '#555',
-  },
-  staleBadge: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#dc2626',
-    borderWidth: 1,
-    borderColor: '#dc2626',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    letterSpacing: 0.5,
-  },
-  chartWrap: {
-    width: '100%',
-  },
-  message: {
-    fontSize: 18,
-    color: '#888',
-    textAlign: 'center',
-  },
-  error: {
-    fontSize: 20,
-    color: '#c00',
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  errorDetail: {
-    fontSize: 14,
-    color: '#c00',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  hint: {
-    fontSize: 13,
-    color: '#888',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  xdripNote: {
-    fontSize: 12,
-    color: '#c00',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
-  },
-  actionButton: {
-    backgroundColor: colors.action.primaryBg,
-    borderRadius: radius.md,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-});
+function makeStyles(
+  colors: ReturnType<typeof useTheme>['colors'],
+  spacing: ReturnType<typeof useTheme>['spacing'],
+  radius: ReturnType<typeof useTheme>['radius'],
+  fontScale: number,
+) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg.surface,
+    },
+    content: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      padding: spacing.xl,
+      paddingTop: 60,
+      paddingBottom: 120,
+      alignItems: 'center',
+    },
+    welcome: {
+      width: '100%',
+      fontSize: 22 * fontScale,
+      fontWeight: '700',
+      color: colors.text.primary,
+      marginBottom: spacing.base,
+    },
+    readingCard: {
+      width: '100%',
+      alignItems: 'center',
+    },
+    quickActionsCard: {
+      width: '100%',
+      marginTop: spacing.base,
+    },
+    cardHeaderRow: {
+      width: '100%',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+    },
+    iobCobRow: {
+      flexDirection: 'row',
+      gap: spacing.base,
+    },
+    iobCobItem: {
+      alignItems: 'flex-end',
+    },
+    iobCobLabel: {
+      fontSize: 11 * fontScale,
+      color: colors.text.quaternary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    iobCobValue: {
+      fontSize: 15 * fontScale,
+      fontWeight: '700',
+      color: colors.text.primary,
+    },
+    cardTitle: {
+      fontSize: 16 * fontScale,
+      fontWeight: '700',
+      color: colors.text.primary,
+      marginBottom: spacing.md,
+    },
+    quickActionsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    quickActionButton: {
+      alignItems: 'center',
+      gap: spacing.xs,
+      flex: 1,
+    },
+    quickActionLabel: {
+      fontSize: 13 * fontScale,
+      fontWeight: '600',
+    },
+    label: {
+      fontSize: 14 * fontScale,
+      color: colors.text.quaternary,
+      marginBottom: 16,
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+    },
+    glucose: {
+      fontSize: 96 * fontScale,
+      fontWeight: 'bold',
+    },
+    arrow: {
+      fontSize: 40 * fontScale,
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginTop: 16,
+    },
+    unit: {
+      fontSize: 20 * fontScale,
+      color: colors.text.secondary,
+      marginBottom: 12,
+    },
+    statusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 16,
+    },
+    detail: {
+      fontSize: 16 * fontScale,
+      color: colors.text.secondary,
+    },
+    staleBadge: {
+      fontSize: 11 * fontScale,
+      fontWeight: '700',
+      color: colors.status.danger,
+      borderWidth: 1,
+      borderColor: colors.status.danger,
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      letterSpacing: 0.5,
+    },
+    chartWrap: {
+      width: '100%',
+    },
+    message: {
+      fontSize: 18 * fontScale,
+      color: colors.text.tertiary,
+      textAlign: 'center',
+    },
+    error: {
+      fontSize: 20 * fontScale,
+      color: colors.status.danger,
+      fontWeight: 'bold',
+      marginBottom: 8,
+    },
+    errorDetail: {
+      fontSize: 14 * fontScale,
+      color: colors.status.danger,
+      marginBottom: 12,
+      textAlign: 'center',
+    },
+    hint: {
+      fontSize: 13 * fontScale,
+      color: colors.text.tertiary,
+      textAlign: 'center',
+      lineHeight: 18,
+    },
+    xdripNote: {
+      fontSize: 12 * fontScale,
+      color: colors.status.danger,
+      textAlign: 'center',
+      marginTop: 8,
+    },
+    actionsRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 10,
+    },
+    actionButton: {
+      backgroundColor: colors.action.primaryBg,
+      borderRadius: radius.md,
+      paddingVertical: 12,
+      paddingHorizontal: 18,
+    },
+    actionButtonText: {
+      color: colors.text.inverse,
+      fontWeight: '600',
+      fontSize: 14 * fontScale,
+    },
+  });
+}

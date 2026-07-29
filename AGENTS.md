@@ -416,20 +416,43 @@ into lettered phases, tracked as tasks:
     Settings navigator itself — same rebuild requirement.
 - **Phase F (partly done via Phase E):** `LogbookEntryModal` and all 6
   Settings sub-screens now have real back navigation (the stack's own
-  header, or a chevron). Still open: Dashboard "Welcome, User" header,
-  and voice entry (mic icon) on treatment/notes inputs — flagged as its
-  own native-dependency risk (needs a library like
+  header, or a chevron). Dashboard's "Welcome, User" header is done (see
+  below). Still open: voice entry (mic icon) on treatment/notes inputs —
+  flagged as its own native-dependency risk (needs a library like
   `@react-native-voice/voice`, same rebuild category as the above).
+
+**Dashboard UI finishing pass** (after Phase E, same session):
+`DashboardScreen.tsx` is now fully migrated to `useTheme()` (the first
+screen besides Settings to consume it — colors, spacing, radius,
+iconSize, and font scale all dynamic; every remaining hardcoded hex was
+replaced with a theme token). Added: a "Welcome, User" header above the
+reading card; an IOB/COB stat in the reading card's top-right corner
+(the mockup element that was still missing), fed by a new
+`lib/oref/usePrediction.ts` hook shared between this stat and
+`PredictionCallout` (which was refactored to a pure presentational
+component taking `result`/`error`/`checked` as props, so the same
+`runPrediction()` call isn't made twice). Fixed the vertical-centering
+regression (`flexGrow: 1` + `justifyContent: 'center'` on the
+ScrollView's `contentContainerStyle`) and bumped the floating tab bar's
+icon size (`iconSize.base` 26px → `iconSize.lg` 32px, plus more pill
+padding) per the "icons read as tiny" feedback.
+
+Still not done on Dashboard: the collapsible Bolus Wizard card shown
+inline in the reference mockup (today it's still the separate
+`QuickLogModal`, which works fine functionally — converting it to an
+inline expandable card is a real interaction-model change, not just a
+style tweak, so it's being held for an explicit decision rather than
+built blind). `AppTabBar` and the rest of Dashboard's *sibling* screens
+(Logbook, Trends) still use the static `colors` export, not
+`useTheme()` — same deferred-migration note as Phase E.
 
 Not done yet: the exponential IOB model (current model is an explicitly-
 flagged linear placeholder — separate from the vendored oref0 IOB calc,
 which is used only for the prediction engine), Trends' Patterns/
-Insights (an LLM feature) and clinician export, Dashboard's IOB/COB
-header stat and the collapsible Bolus Wizard card (visible in the
-reference mockup, not yet built — Quick Actions *is* now built, see
-Phase C), the real (v1+) Nightscout import feature, and a live-timer
-notification for Activity logging (a simpler start/duration-only
-version is what's built now). The BLE meter's RACP "Sync History" still
+Insights (an LLM feature) and clinician export, the collapsible Bolus
+Wizard card (see above), the real (v1+) Nightscout import feature, and
+a live-timer notification for Activity logging (a simpler start/
+duration-only version is what's built now). The BLE meter's RACP "Sync History" still
 hits a `GATT_INTERNAL_ERROR` that hasn't been resolved. Migrating
 Dashboard/Logbook/Trends onto the new theme system (dark mode, font
 scale, time format) is also still open — see Phase E's scope note.

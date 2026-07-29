@@ -42,7 +42,7 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
 
           return (
             <Pressable key={route.key} onPress={onPress} style={styles.tab} accessibilityRole="button" accessibilityLabel={label}>
-              <Ionicons name={iconName} size={iconSize.base} color={color} />
+              <Ionicons name={iconName} size={iconSize.lg} color={color} />
             </Pressable>
           );
         })}
@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: colors.bg.primary,
     borderRadius: radius.full,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
     gap: spacing.xl,
   },
