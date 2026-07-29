@@ -338,10 +338,22 @@ into lettered phases, tracked as tasks:
   remove it). Search is text-only (matches type/date-string/notes) —
   no true date-range picker yet, since no calendar library is in the
   project.
-- **Phase C (not started):** Activity + Notes quick actions, chart
-  timeline markers per action type, confirm-before-submit added to
-  every log/save action app-wide (Quick Actions, Bolus Wizard, Basal
-  Dose — none of these have a confirm step yet).
+- **Phase C (done):** New `activities` and `note_entries` tables (see
+  `lib/db/activities.ts`, `lib/db/noteEntries.ts`). Four Quick Action
+  modals — Carbs, Insulin (both simple, no bolus calculation — reuse
+  `treatments` with the unused field left null), Activity
+  (intensity+duration), Notes (freeform text) — each a bottom sheet with
+  Save/Clear and a confirm-before-save `Alert`. The same confirm step
+  was added to the existing `QuickLogModal` (relabeled "Bolus Wizard" on
+  Dashboard, since it computes a suggested dose unlike the new simple
+  Carbs/Insulin actions) and `BasalDoseModal`. `GlucoseChart` now takes
+  a `markers` prop and plots a small shape per logged action at a fixed
+  baseline (not at its BG value, to stay legible); each action's
+  color/shape is defined once in `lib/theme.ts`'s `quickActionStyles`
+  and shared between its Quick Action button icon and its chart marker.
+  A treatment with both carbs and insulin set (e.g. from the Bolus
+  Wizard) shows as a carbs-colored marker — one marker per treatment
+  row, not one per field, to keep the chart legible.
 - **Phase D (not started):** Bolus Wizard's accept/modify suggestion
   step, Dashboard prediction callout under the glucose graph.
 - **Phase E (not started):** Settings restructured into 6 cards —
