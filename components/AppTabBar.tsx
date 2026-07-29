@@ -42,7 +42,7 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
 
           return (
             <Pressable key={route.key} onPress={onPress} style={styles.tab} accessibilityRole="button" accessibilityLabel={label}>
-              <Ionicons name={iconName} size={iconSize.lg} color={color} />
+              <Ionicons name={iconName} size={iconSize.xl} color={color} />
             </Pressable>
           );
         })}
@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
-    gap: spacing.xl,
+    gap: spacing.xxl,
   },
   tab: {
     alignItems: 'center',
