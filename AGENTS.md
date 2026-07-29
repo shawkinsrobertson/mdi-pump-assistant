@@ -363,6 +363,23 @@ into lettered phases, tracked as tasks:
   step was found already implemented in the existing `QuickLogModal`
   (pre-filled suggested insulin, editable, with a "reset to suggested"
   undo) — no changes needed there beyond Phase C's rename/confirm step.
+
+  **Bug found via the new callout, now fixed:** `computeAutosens` in
+  `lib/oref/predictionCore.ts` used `currentBasal` as
+  `profile.max_daily_basal`, autosens.js's normalizing denominator (see
+  the comment above that function for why). With no basal dose logged —
+  a completely normal state, not an error — `currentBasal` is 0, so
+  autosens divided by zero, producing a NaN ratio that poisoned ISF/
+  deviation/eventualBG all the way through `determine_basal`, surfacing
+  only as an opaque "could not calculate eventualBG" error with zero
+  indication of the real cause. Fixed by bailing out to the same safe
+  `{ratio: 1, insufficientData: true}` default already used for
+  insufficient glucose history, whenever there's no current basal to
+  normalize against. `lib/oref/predictionCore.ts` had solid existing
+  test coverage (`__tests__/predictionCore.test.js`) but every autosens
+  fixture happened to include a logged basal dose except the one under
+  the glucose-count threshold — this exact combination (>=72 points,
+  zero basal) was untested; a regression test for it is now in place.
 - **Phase E (not started):** Settings restructured into 6 cards —
   Integrations (placeholder), Account/Profile+Treatment Configurations
   (real — absorbs the current Dosing/TIR fields), Display and Theme
