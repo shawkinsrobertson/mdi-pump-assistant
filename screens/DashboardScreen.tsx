@@ -9,6 +9,7 @@ import { CarbsLogModal } from '../components/CarbsLogModal';
 import { GlucoseChart, type ChartMarker } from '../components/GlucoseChart';
 import { InsulinLogModal } from '../components/InsulinLogModal';
 import { NotesLogModal } from '../components/NotesLogModal';
+import { PredictionCallout } from '../components/PredictionCallout';
 import { PredictionModal } from '../components/PredictionModal';
 import { QuickLogModal } from '../components/QuickLogModal';
 import { Card } from '../components/ui/Card';
@@ -32,6 +33,7 @@ export function DashboardScreen() {
   const [activityVisible, setActivityVisible] = useState(false);
   const [notesVisible, setNotesVisible] = useState(false);
   const [markers, setMarkers] = useState<ChartMarker[]>([]);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   const refetchMarkers = useCallback(() => {
     Promise.all([
@@ -59,10 +61,18 @@ export function DashboardScreen() {
       });
   }, []);
 
+  // Shared refresh for anything that changes after a log action: chart
+  // markers and the prediction callout (a new treatment/basal dose can
+  // change IOB/COB, which changes the suggestion).
+  const refreshAfterLog = useCallback(() => {
+    refetchMarkers();
+    setRefreshToken((t) => t + 1);
+  }, [refetchMarkers]);
+
   useFocusEffect(
     useCallback(() => {
-      refetchMarkers();
-    }, [refetchMarkers]),
+      refreshAfterLog();
+    }, [refreshAfterLog]),
   );
 
   return (
@@ -87,6 +97,7 @@ export function DashboardScreen() {
             <View style={styles.chartWrap}>
               <GlucoseChart history={history} markers={markers} />
             </View>
+            <PredictionCallout onPress={() => setPredictionVisible(true)} refreshToken={refreshToken} />
           </>
         )}
 
@@ -168,14 +179,14 @@ export function DashboardScreen() {
         visible={quickLogVisible}
         onClose={() => setQuickLogVisible(false)}
         currentBG={current?.sgv ?? null}
-        onLogged={refetchMarkers}
+        onLogged={refreshAfterLog}
       />
       <BasalDoseModal visible={basalDoseVisible} onClose={() => setBasalDoseVisible(false)} />
       <PredictionModal visible={predictionVisible} onClose={() => setPredictionVisible(false)} />
-      <CarbsLogModal visible={carbsVisible} onClose={() => setCarbsVisible(false)} onLogged={refetchMarkers} />
-      <InsulinLogModal visible={insulinVisible} onClose={() => setInsulinVisible(false)} onLogged={refetchMarkers} />
-      <ActivityLogModal visible={activityVisible} onClose={() => setActivityVisible(false)} onLogged={refetchMarkers} />
-      <NotesLogModal visible={notesVisible} onClose={() => setNotesVisible(false)} onLogged={refetchMarkers} />
+      <CarbsLogModal visible={carbsVisible} onClose={() => setCarbsVisible(false)} onLogged={refreshAfterLog} />
+      <InsulinLogModal visible={insulinVisible} onClose={() => setInsulinVisible(false)} onLogged={refreshAfterLog} />
+      <ActivityLogModal visible={activityVisible} onClose={() => setActivityVisible(false)} onLogged={refreshAfterLog} />
+      <NotesLogModal visible={notesVisible} onClose={() => setNotesVisible(false)} onLogged={refreshAfterLog} />
     </ScrollView>
   );
 }
