@@ -2,9 +2,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AgpChart } from '../components/AgpChart';
+import { Card } from '../components/ui/Card';
 import { getReadingsSince } from '../lib/db/glucoseReadings';
 import type { GlucoseReading } from '../lib/glucose';
 import { useSettings } from '../lib/settings';
+import { colors, radius, spacing } from '../lib/theme';
 import { computeAgpBuckets, computeAgpSummary } from '../lib/trends/agp';
 import { computeTimeInRange } from '../lib/trends/timeInRange';
 import { TRENDS_WINDOWS, trendsWindowLabel, windowStartMs, type TrendsWindow } from '../lib/trends/window';
@@ -63,7 +65,7 @@ export function TrendsScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Trends</Text>
 
-      <View style={styles.card}>
+      <Card style={styles.card}>
         <Text style={styles.cardTitle}>Time in Range</Text>
 
         {error && <Text style={styles.error}>Couldn't load readings: {error}</Text>}
@@ -107,9 +109,9 @@ export function TrendsScreen() {
             </Pressable>
           ))}
         </View>
-      </View>
+      </Card>
 
-      <View style={styles.card}>
+      <Card style={styles.card}>
         <Text style={styles.cardTitle}>Ambulatory Profile</Text>
 
         {!error && agpBuckets !== null && readings !== null && readings.length === 0 && (
@@ -139,12 +141,12 @@ export function TrendsScreen() {
             )}
           </>
         )}
-      </View>
+      </Card>
 
-      <View style={styles.card}>
+      <Card style={styles.card}>
         <Text style={styles.cardTitle}>Patterns and Insights</Text>
         <Text style={styles.message}>Needs at least 7 days of data — coming soon.</Text>
-      </View>
+      </Card>
     </ScrollView>
   );
 }
@@ -152,36 +154,35 @@ export function TrendsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg.surface,
   },
   content: {
-    padding: 24,
+    padding: spacing.xl,
     paddingTop: 60,
+    paddingBottom: 120,
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 16,
+    color: colors.text.primary,
   },
   card: {
-    backgroundColor: '#f7f7f7',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    marginBottom: spacing.base,
   },
   cardTitle: {
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 12,
-    color: '#111',
+    color: colors.text.primary,
   },
   message: {
     fontSize: 14,
-    color: '#888',
+    color: colors.text.tertiary,
   },
   error: {
     fontSize: 14,
-    color: '#c00',
+    color: colors.status.danger,
   },
   percentRow: {
     flexDirection: 'row',
@@ -193,42 +194,42 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   belowLabel: {
-    color: '#dc2626',
+    color: colors.status.danger,
   },
   inRangeLabel: {
-    color: '#16a34a',
+    color: colors.status.success,
   },
   aboveLabel: {
-    color: '#d97706',
+    color: colors.status.warning,
   },
   bar: {
     flexDirection: 'row',
     height: 16,
-    borderRadius: 8,
+    borderRadius: radius.md,
     overflow: 'hidden',
-    backgroundColor: '#e5e5e5',
+    backgroundColor: colors.border.muted,
   },
   barSegment: {
     height: '100%',
   },
   belowSegment: {
-    backgroundColor: '#dc2626',
+    backgroundColor: colors.status.danger,
   },
   inRangeSegment: {
-    backgroundColor: '#16a34a',
+    backgroundColor: colors.status.success,
   },
   aboveSegment: {
-    backgroundColor: '#d97706',
+    backgroundColor: colors.status.warning,
   },
   rangeNote: {
     fontSize: 12,
-    color: '#888',
+    color: colors.text.tertiary,
     marginTop: 8,
   },
   summaryValue: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#1e3a8a',
+    color: colors.accent.info,
     textAlign: 'center',
     marginTop: 12,
   },
@@ -240,22 +241,22 @@ const styles = StyleSheet.create({
   toggleButton: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
+    borderColor: colors.border.default,
+    borderRadius: radius.md,
     paddingVertical: 10,
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg.primary,
   },
   toggleButtonActive: {
-    borderColor: '#111',
-    backgroundColor: '#111',
+    borderColor: colors.action.primaryBg,
+    backgroundColor: colors.action.primaryBg,
   },
   toggleText: {
-    color: '#555',
+    color: colors.text.secondary,
     fontWeight: '600',
     fontSize: 13,
   },
   toggleTextActive: {
-    color: '#fff',
+    color: colors.text.inverse,
   },
 });

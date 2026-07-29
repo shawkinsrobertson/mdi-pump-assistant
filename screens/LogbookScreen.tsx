@@ -1,20 +1,49 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { SectionList, StyleSheet, Text, View } from 'react-native';
 import { getRecentBasalDoses, type BasalDoseRecord } from '../lib/db/basalDoses';
 import { getRecentTreatments, type Treatment } from '../lib/db/treatments';
+import { colors, spacing } from '../lib/theme';
 
 const RECENT_COUNT = 50;
 
 type LogEntry = { kind: 'treatment'; treatment: Treatment } | { kind: 'basal'; dose: BasalDoseRecord };
+
+function timeOf(e: LogEntry): string {
+  return e.kind === 'treatment' ? e.treatment.createdAt : e.dose.injectedAt;
+}
 
 function mergeEntries(treatments: Treatment[], basalDoses: BasalDoseRecord[]): LogEntry[] {
   const entries: LogEntry[] = [
     ...treatments.map((treatment): LogEntry => ({ kind: 'treatment', treatment })),
     ...basalDoses.map((dose): LogEntry => ({ kind: 'basal', dose })),
   ];
-  const timeOf = (e: LogEntry) => (e.kind === 'treatment' ? e.treatment.createdAt : e.dose.injectedAt);
   return entries.sort((a, b) => timeOf(b).localeCompare(timeOf(a)));
+}
+
+function dayLabel(date: Date, today: Date): string {
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(today) - startOfDay(date)) / (24 * 60 * 60 * 1000));
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+// Entries already arrive sorted newest-first (mergeEntries); grouping
+// preserves that order across day boundaries.
+function groupByDay(entries: LogEntry[]): { title: string; data: LogEntry[] }[] {
+  const now = new Date();
+  const sections: { title: string; data: LogEntry[] }[] = [];
+  for (const entry of entries) {
+    const label = dayLabel(new Date(timeOf(entry)), now);
+    const last = sections[sections.length - 1];
+    if (last && last.title === label) {
+      last.data.push(entry);
+    } else {
+      sections.push({ title: label, data: [entry] });
+    }
+  }
+  return sections;
 }
 
 export function LogbookScreen() {
@@ -55,9 +84,15 @@ export function LogbookScreen() {
         <Text style={styles.message}>Nothing logged yet.</Text>
       )}
 
-      <FlatList
-        data={mergeEntries(treatments ?? [], basalDoses ?? [])}
+      <SectionList
+        sections={groupByDay(mergeEntries(treatments ?? [], basalDoses ?? []))}
         keyExtractor={(e) => `${e.kind}:${e.kind === 'treatment' ? e.treatment.id : e.dose.id}`}
+        renderSectionHeader={({ section }) => (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
+            <View style={styles.sectionRule} />
+          </View>
+        )}
         renderItem={({ item }) =>
           item.kind === 'treatment' ? (
             <View style={styles.row}>
@@ -81,6 +116,7 @@ export function LogbookScreen() {
             </View>
           )
         }
+        contentContainerStyle={styles.listContent}
       />
     </View>
   );
@@ -89,29 +125,49 @@ export function LogbookScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
-    padding: 24,
+    backgroundColor: colors.bg.primary,
+    padding: spacing.xl,
     paddingTop: 60,
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 16,
+    color: colors.text.primary,
+  },
+  listContent: {
+    paddingBottom: 120,
+  },
+  sectionHeader: {
+    backgroundColor: colors.bg.primary,
+    paddingTop: spacing.base,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text.primary,
+    textAlign: 'right',
+    marginBottom: spacing.xs,
+  },
+  sectionRule: {
+    height: 1,
+    backgroundColor: colors.text.primary,
+    marginBottom: spacing.xs,
   },
   message: {
     fontSize: 14,
-    color: '#888',
+    color: colors.text.tertiary,
     marginBottom: 12,
   },
   error: {
     fontSize: 14,
-    color: '#c00',
+    color: colors.status.danger,
     marginBottom: 12,
   },
   row: {
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: colors.border.subtle,
   },
   rowHeader: {
     flexDirection: 'row',
@@ -120,15 +176,15 @@ const styles = StyleSheet.create({
   eventType: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#111',
+    color: colors.text.primary,
   },
   time: {
     fontSize: 12,
-    color: '#888',
+    color: colors.text.tertiary,
   },
   detail: {
     fontSize: 13,
-    color: '#555',
+    color: colors.text.secondary,
     marginTop: 2,
   },
 });

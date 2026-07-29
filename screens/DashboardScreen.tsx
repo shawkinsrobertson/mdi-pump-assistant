@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BasalDoseModal } from '../components/BasalDoseModal';
 import { BleMeterModal } from '../components/BleMeterModal';
 import { GlucoseChart } from '../components/GlucoseChart';
 import { PredictionModal } from '../components/PredictionModal';
 import { QuickLogModal } from '../components/QuickLogModal';
+import { Card } from '../components/ui/Card';
 import { useGlucose } from '../lib/GlucoseContext';
 import { arrowForDirection, bgColor, formatClockTime, isStale } from '../lib/glucose';
+import { colors, radius, spacing } from '../lib/theme';
 
 export function DashboardScreen() {
   const { current, history, xdripStatus, xdripError, reportBleLiveReading, reportBleHistorySync } = useGlucose();
@@ -16,48 +18,50 @@ export function DashboardScreen() {
   const [predictionVisible, setPredictionVisible] = useState(false);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.label}>CGM — xDrip+</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Card style={styles.readingCard}>
+        <Text style={styles.label}>CGM — xDrip+</Text>
 
-      {current === null && xdripStatus === 'loading' && <ActivityIndicator size="large" color="#333" />}
+        {current === null && xdripStatus === 'loading' && <ActivityIndicator size="large" color={colors.text.label} />}
 
-      {current !== null && (
-        <>
-          <View style={styles.headerRow}>
-            <Text style={[styles.glucose, { color: bgColor(current.sgv) }]}>{current.sgv}</Text>
-            <Text style={styles.arrow}>{arrowForDirection(current.direction)}</Text>
-          </View>
-          <Text style={styles.unit}>mg/dL</Text>
-          <View style={styles.statusRow}>
-            <Text style={styles.detail}>{formatClockTime(current.date)}</Text>
-            {isStale(current) && <Text style={styles.staleBadge}>STALE</Text>}
-          </View>
+        {current !== null && (
+          <>
+            <View style={styles.headerRow}>
+              <Text style={[styles.glucose, { color: bgColor(current.sgv) }]}>{current.sgv}</Text>
+              <Text style={styles.arrow}>{arrowForDirection(current.direction)}</Text>
+            </View>
+            <Text style={styles.unit}>mg/dL</Text>
+            <View style={styles.statusRow}>
+              <Text style={styles.detail}>{formatClockTime(current.date)}</Text>
+              {isStale(current) && <Text style={styles.staleBadge}>STALE</Text>}
+            </View>
 
-          <View style={styles.chartWrap}>
-            <GlucoseChart history={history} />
-          </View>
-        </>
-      )}
+            <View style={styles.chartWrap}>
+              <GlucoseChart history={history} />
+            </View>
+          </>
+        )}
 
-      {current === null && xdripStatus === 'no-data' && (
-        <Text style={styles.message}>No recent CGM data from xDrip+.</Text>
-      )}
+        {current === null && xdripStatus === 'no-data' && (
+          <Text style={styles.message}>No recent CGM data from xDrip+.</Text>
+        )}
 
-      {current === null && xdripStatus === 'error' && (
-        <>
-          <Text style={styles.error}>Failed to reach xDrip+</Text>
-          <Text style={styles.errorDetail}>{xdripError}</Text>
-          <Text style={styles.hint}>
-            If this URL works in the phone browser but not here, check that
-            usesCleartextTraffic is enabled in app.json and rebuild the dev
-            client.
-          </Text>
-        </>
-      )}
+        {current === null && xdripStatus === 'error' && (
+          <>
+            <Text style={styles.error}>Failed to reach xDrip+</Text>
+            <Text style={styles.errorDetail}>{xdripError}</Text>
+            <Text style={styles.hint}>
+              If this URL works in the phone browser but not here, check that
+              usesCleartextTraffic is enabled in app.json and rebuild the dev
+              client.
+            </Text>
+          </>
+        )}
 
-      {current !== null && xdripStatus === 'error' && (
-        <Text style={styles.xdripNote}>xDrip+ poll failing: {xdripError}</Text>
-      )}
+        {current !== null && xdripStatus === 'error' && (
+          <Text style={styles.xdripNote}>xDrip+ poll failing: {xdripError}</Text>
+        )}
+      </Card>
 
       <View style={styles.actionsRow}>
         <Pressable style={styles.actionButton} onPress={() => setQuickLogVisible(true)}>
@@ -89,21 +93,28 @@ export function DashboardScreen() {
       />
       <BasalDoseModal visible={basalDoseVisible} onClose={() => setBasalDoseVisible(false)} />
       <PredictionModal visible={predictionVisible} onClose={() => setPredictionVisible(false)} />
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg.surface,
+  },
+  content: {
+    padding: spacing.xl,
+    paddingTop: 60,
+    paddingBottom: 120,
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
+  },
+  readingCard: {
+    width: '100%',
+    alignItems: 'center',
   },
   label: {
     fontSize: 14,
-    color: '#999',
+    color: colors.text.quaternary,
     marginBottom: 16,
     textTransform: 'uppercase',
     letterSpacing: 1,
@@ -187,8 +198,8 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   actionButton: {
-    backgroundColor: '#111',
-    borderRadius: 8,
+    backgroundColor: colors.action.primaryBg,
+    borderRadius: radius.md,
     paddingVertical: 12,
     paddingHorizontal: 18,
   },

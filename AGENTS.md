@@ -275,15 +275,38 @@ the mockups), but v1 targets MDI users without that kind of migration
 tooling. The seed button/bundled data should be removed before any real
 release build.
 
-Not done yet: edit/delete on logged treatments and basal doses, the
-exponential IOB model (current model is an explicitly-flagged linear
-placeholder — separate from the vendored oref0 IOB calc, which is used
-only for the prediction engine), Trends' Patterns/Insights (an LLM
-feature) and clinician export, the Settings category restructure shown
-in that session's mockups, the real (v1+) Nightscout import feature, and
-a live-timer notification for Activity logging (a simpler start/
-duration-only version is planned first). The BLE meter's RACP "Sync
-History" still hits a `GATT_INTERNAL_ERROR` that hasn't been resolved.
+A Figma design system (`Primitives`/`Color`/`Spacing`/`Radius` variable
+collections + a 12-component library) was built to prototype the new
+look before porting it to code — see the file linked in chat history.
+The Figma MCP server is on a Starter-plan quota (6 read-tool-calls/
+month, now exhausted for this billing period); further Figma work needs
+either a plan upgrade or to wait for the reset.
+
+The app-side restyle (ported by hand from the Figma work, not via Code
+Connect — that needs an Org/Enterprise plan) landed in `lib/theme.ts`
+(colors incl. brand blue `#054AE1`, spacing/radius/icon-size scales,
+card shadow) and `components/ui/Card.tsx` (white + drop-shadow card,
+replacing the old flat gray-fill style) and `components/AppTabBar.tsx`
+(floating pill tab bar with brand-blue-active / gray-inactive icons,
+replacing the edge-to-edge underlined bar). Dashboard's reading+chart
+section, all of Trends' cards, and Settings (now grouped into Dosing /
+Time in Range / Developer cards) all use the new Card. Logbook now
+groups entries under Today/Yesterday/date section headers.
+
+Not done yet: edit/delete on logged treatments and basal doses (the
+revised Logbook mockup shows inline edit/delete row actions, but that
+needs real DB delete support + confirmation UX — deliberately not
+half-built), the exponential IOB model (current model is an explicitly-
+flagged linear placeholder — separate from the vendored oref0 IOB calc,
+which is used only for the prediction engine), Trends' Patterns/
+Insights (an LLM feature) and clinician export, Dashboard's IOB/COB
+header stat / Quick Actions row / collapsible Bolus Wizard card (all
+visible in the reference mockup but not yet built — restyle only landed
+tonight, no new Dashboard functionality), the real (v1+) Nightscout
+import feature, and a live-timer notification for Activity logging (a
+simpler start/duration-only version is planned first). The BLE meter's
+RACP "Sync History" still hits a `GATT_INTERNAL_ERROR` that hasn't been
+resolved.
 
 - `shawkinsrobertson/shelbyai-diabetes-assistant` is the web dashboard
   this app's bolus wizard and Quick Log UX were ported from.

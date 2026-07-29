@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import rawSeedEntries from '../scripts/seed-data/entries.json';
 import rawSeedTreatments from '../scripts/seed-data/treatments.json';
+import { Card } from '../components/ui/Card';
 import { insertReadings } from '../lib/db/glucoseReadings';
 import { DuplicateTreatmentError, insertTreatment } from '../lib/db/treatments';
 import { parseNightscoutEntries, parseNightscoutTreatments } from '../lib/importers/nightscout';
 import { useSettings } from '../lib/settings';
+import { colors, radius, spacing } from '../lib/theme';
 
 function numOrNull(text: string): number | null {
   if (text.trim() === '') return null;
@@ -96,36 +98,37 @@ export function SettingsScreen() {
         <Text style={styles.title}>Settings</Text>
         {saved && <Text style={styles.confirmed}>Saved ✓</Text>}
       </View>
-      <Text style={styles.hint}>
-        Required for the bolus wizard and predictions. Never pre-filled with a "typical" value — enter your own.
-      </Text>
 
-      <Field label="ISF (correction factor, mg/dL per unit)" value={isf} onChangeText={setIsf} />
-      <Field label="Carb ratio (grams per unit)" value={carbRatio} onChangeText={setCarbRatio} />
-      <Field label="Target BG (mg/dL)" value={targetBG} onChangeText={setTargetBG} />
-      <Field label="DIA — duration of insulin action (hours)" value={dia} onChangeText={setDia} />
-      <Field label="Pen increment (units, e.g. 1 or 0.5)" value={penIncrement} onChangeText={setPenIncrement} />
-      <Field
-        label="Max IOB (units) — insulin-on-board safety cap for predictions"
-        value={maxIOB}
-        onChangeText={setMaxIOB}
-      />
-      <Field
-        label="Time in Range — low threshold (mg/dL)"
-        value={rangeLow}
-        onChangeText={setRangeLow}
-      />
-      <Field
-        label="Time in Range — high threshold (mg/dL)"
-        value={rangeHigh}
-        onChangeText={setRangeHigh}
-      />
+      <Card style={styles.card}>
+        <Text style={styles.cardTitle}>Dosing</Text>
+        <Text style={styles.hint}>
+          Required for the bolus wizard and predictions. Never pre-filled with a "typical" value — enter your own.
+        </Text>
+        <Field label="ISF (correction factor, mg/dL per unit)" value={isf} onChangeText={setIsf} />
+        <Field label="Carb ratio (grams per unit)" value={carbRatio} onChangeText={setCarbRatio} />
+        <Field label="Target BG (mg/dL)" value={targetBG} onChangeText={setTargetBG} />
+        <Field label="DIA — duration of insulin action (hours)" value={dia} onChangeText={setDia} />
+        <Field label="Pen increment (units, e.g. 1 or 0.5)" value={penIncrement} onChangeText={setPenIncrement} />
+        <Field
+          label="Max IOB (units) — insulin-on-board safety cap for predictions"
+          value={maxIOB}
+          onChangeText={setMaxIOB}
+          last
+        />
+      </Card>
+
+      <Card style={styles.card}>
+        <Text style={styles.cardTitle}>Time in Range</Text>
+        <Text style={styles.hint}>Used for the Trends screen's Time in Range card. Adjustable if your clinician specifies a different range.</Text>
+        <Field label="Low threshold (mg/dL)" value={rangeLow} onChangeText={setRangeLow} />
+        <Field label="High threshold (mg/dL)" value={rangeHigh} onChangeText={setRangeHigh} last />
+      </Card>
 
       <Pressable style={styles.button} onPress={handleSave}>
         <Text style={styles.buttonText}>Save</Text>
       </Pressable>
 
-      <View style={styles.devSection}>
+      <Card style={[styles.card, styles.devCard]}>
         <Text style={styles.devTitle}>Developer</Text>
         <Text style={styles.hint}>
           Loads a real (small) Nightscout export bundled with the app for testing Trends/Prediction against real
@@ -136,10 +139,10 @@ export function SettingsScreen() {
           disabled={seeding}
           onPress={handleSeedTestData}
         >
-          {seeding ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Seed test data</Text>}
+          {seeding ? <ActivityIndicator color={colors.text.inverse} /> : <Text style={styles.buttonText}>Seed test data</Text>}
         </Pressable>
         {seedResult && <Text style={styles.seedResult}>{seedResult}</Text>}
-      </View>
+      </Card>
     </ScrollView>
   );
 }
@@ -148,13 +151,15 @@ function Field({
   label,
   value,
   onChangeText,
+  last,
 }: {
   label: string;
   value: string;
   onChangeText: (text: string) => void;
+  last?: boolean;
 }) {
   return (
-    <View style={styles.field}>
+    <View style={[styles.field, last && styles.fieldLast]}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
         style={styles.input}
@@ -162,6 +167,7 @@ function Field({
         onChangeText={onChangeText}
         keyboardType="decimal-pad"
         placeholder="—"
+        placeholderTextColor={colors.text.placeholder}
       />
     </View>
   );
@@ -170,82 +176,93 @@ function Field({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg.surface,
   },
   content: {
-    padding: 24,
+    padding: spacing.xl,
     paddingTop: 60,
+    paddingBottom: 120,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: spacing.base,
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
+    color: colors.text.primary,
   },
   confirmed: {
-    color: '#16a34a',
+    color: colors.status.success,
     fontWeight: '600',
+  },
+  card: {
+    marginBottom: spacing.base,
+  },
+  devCard: {
+    marginTop: spacing.sm,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text.primary,
+    marginBottom: spacing.xs,
   },
   hint: {
     fontSize: 13,
-    color: '#888',
-    marginBottom: 20,
+    color: colors.text.tertiary,
+    marginBottom: spacing.base,
   },
   field: {
-    marginBottom: 16,
+    marginBottom: spacing.base,
+  },
+  fieldLast: {
+    marginBottom: 0,
   },
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 6,
+    color: colors.text.label,
+    marginBottom: spacing.xs,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: colors.border.default,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.smMd,
     fontSize: 16,
+    color: colors.text.primary,
   },
   button: {
-    backgroundColor: '#111',
-    borderRadius: 8,
-    paddingVertical: 12,
+    backgroundColor: colors.action.primaryBg,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
     alignItems: 'center',
-    marginTop: 12,
   },
   buttonSecondary: {
-    backgroundColor: '#888',
+    backgroundColor: colors.action.secondaryBg,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   buttonText: {
-    color: '#fff',
+    color: colors.text.inverse,
     fontWeight: '600',
-  },
-  devSection: {
-    marginTop: 32,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
   },
   devTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#888',
+    color: colors.text.tertiary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 6,
+    marginBottom: spacing.xs,
   },
   seedResult: {
     fontSize: 13,
-    color: '#333',
-    marginTop: 8,
+    color: colors.text.label,
+    marginTop: spacing.sm,
   },
 });
