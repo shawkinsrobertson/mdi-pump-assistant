@@ -89,7 +89,7 @@ export function DashboardScreen() {
 
       <Card style={styles.readingCard}>
         <View style={styles.cardHeaderRow}>
-          <Text style={styles.label}>CGM — xDrip+</Text>
+           <Text style={styles.detail}>{formatClockTime(Date.now())}</Text>
           {iobCob && (
             <View style={styles.iobCobRow}>
               <View style={styles.iobCobItem}>
@@ -338,18 +338,18 @@ function makeStyles(
       marginTop: 16,
     },
     unit: {
-      fontSize: 20 * fontScale,
+      fontSize: 14 * fontScale,
       color: colors.text.secondary,
-      marginBottom: 12,
+      marginBottom: 4,
     },
     statusRow: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       gap: 8,
       marginBottom: 16,
     },
     detail: {
-      fontSize: 16 * fontScale,
+      fontSize: 14 * fontScale,
       color: colors.text.secondary,
     },
     staleBadge: {
