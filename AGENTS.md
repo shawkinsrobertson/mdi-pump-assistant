@@ -309,17 +309,12 @@ of Dashboard + Trends), queued for next session, not yet fixed:**
   make sense of."
 - Bottom tab bar: user reports icons read as "very tiny" — current
   `iconSize.base` (26px) may need to move up a step (`lg`/32px), and/or
-  the pill needs more padding. There's also a visible solid dark-gray
-  strip below the floating pill at the very bottom edge of the screen in
-  both screenshots — looks like the unstyled Android system nav bar
-  showing through rather than anything `AppTabBar` renders; check
-  edge-to-edge / nav bar color config in `app.json`.
-- A floating gray circular gear-icon bubble appears top-right on every
-  screenshot, in a fixed screen position regardless of scroll. Nothing
-  in the codebase renders a gear/settings icon (`grep` came up empty
-  outside an unrelated BLE file) — almost certainly the Expo Dev
-  Client's floating dev-menu bubble, not app UI, but worth confirming
-  with the user rather than assuming before touching anything.
+  the pill needs more padding. (The dark strip visible below the pill in
+  the screenshots is the user's own Android system nav bar, confirmed
+  not an app issue — no `AppTabBar`/`app.json` change needed there.)
+- The floating gray gear-icon bubble seen top-right in both screenshots
+  is confirmed to be Expo Dev Client's own floating dev-menu bubble, not
+  app UI — no action needed.
 - Dashboard IOB/COB header stat, Quick Actions icon row, and the
   collapsible Bolus Wizard card are still intentionally unbuilt (see
   below) — the "missing elements" feedback likely includes these; not a
