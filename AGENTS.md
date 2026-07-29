@@ -354,8 +354,15 @@ into lettered phases, tracked as tasks:
   A treatment with both carbs and insulin set (e.g. from the Bolus
   Wizard) shows as a carbs-colored marker — one marker per treatment
   row, not one per field, to keep the chart legible.
-- **Phase D (not started):** Bolus Wizard's accept/modify suggestion
-  step, Dashboard prediction callout under the glucose graph.
+- **Phase D (done):** `components/PredictionCallout.tsx` — a
+  simplified, always-on summary under the Dashboard glucose graph
+  (suggested carbs / "no action, eventual BG X" / a Settings nudge),
+  tapping it opens the existing `PredictionModal` for the full
+  derivation rather than duplicating it. Refreshes on tab focus and
+  after any log action. The Bolus Wizard's own accept/modify suggestion
+  step was found already implemented in the existing `QuickLogModal`
+  (pre-filled suggested insulin, editable, with a "reset to suggested"
+  undo) — no changes needed there beyond Phase C's rename/confirm step.
 - **Phase E (not started):** Settings restructured into 6 cards —
   Integrations (placeholder), Account/Profile+Treatment Configurations
   (real — absorbs the current Dosing/TIR fields), Display and Theme
