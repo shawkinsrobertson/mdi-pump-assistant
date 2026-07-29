@@ -110,15 +110,17 @@ export function DashboardScreen() {
           <>
             <View style={styles.headerRow}>
               <Text style={[styles.glucose, { color: bgColor(current.sgv) }]}>{current.sgv}</Text>
-              <Text style={styles.arrow}>{arrowForDirection(current.direction)}</Text>
+              <View style={styles.arrowUnitGrp}>
+                <Text style={styles.arrow}>{arrowForDirection(current.direction)}</Text>
+                <Text style={styles.unit}>mg/dL</Text>
+              </View>
+              
             </View>
-            <Text style={styles.unit}>mg/dL</Text>
-            <View style={styles.statusRow}>
+            <View style={styles.chartWrap}>
+              <View style={styles.statusRow}>
               <Text style={styles.detail}>{formatClockTime(current.date)}</Text>
               {isStale(current) && <Text style={styles.staleBadge}>STALE</Text>}
             </View>
-
-            <View style={styles.chartWrap}>
               <GlucoseChart history={history} markers={markers} />
             </View>
             <PredictionCallout
@@ -326,6 +328,11 @@ function makeStyles(
       flexDirection: 'row',
       alignItems: 'flex-start',
       gap: 8,
+    },
+    arrowUnitGrp: {
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      gap: 4,
     },
     glucose: {
       fontSize: 96 * fontScale,
