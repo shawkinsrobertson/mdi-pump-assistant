@@ -10,7 +10,7 @@ interface PredictionModalProps {
 
 // Manual, on-demand trigger — matching the same "flag, don't guess" /
 // on-demand-suggestion pattern already used by the bolus wizard in
-// QuickLogModal, rather than a silent background alert.
+// BolusWizardCard, rather than a silent background alert.
 export function PredictionModal({ visible, onClose }: PredictionModalProps) {
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState<string | null>(null);

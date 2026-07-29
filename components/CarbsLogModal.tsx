@@ -11,7 +11,7 @@ interface CarbsLogModalProps {
 }
 
 // Simple Quick Action: log a carb count with no bolus calculation —
-// distinct from the existing "Bolus Wizard" flow (QuickLogModal), which
+// distinct from the existing "Bolus Wizard" flow (BolusWizardCard), which
 // computes a suggested insulin dose. Stored as a Meal Bolus treatment
 // with insulin left null, same schema the wizard already writes to.
 export function CarbsLogModal({ visible, onClose, onLogged }: CarbsLogModalProps) {

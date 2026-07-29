@@ -5,13 +5,13 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { ActivityLogModal } from '../components/ActivityLogModal';
 import { BasalDoseModal } from '../components/BasalDoseModal';
 import { BleMeterModal } from '../components/BleMeterModal';
+import { BolusWizardCard } from '../components/BolusWizardCard';
 import { CarbsLogModal } from '../components/CarbsLogModal';
 import { GlucoseChart, type ChartMarker } from '../components/GlucoseChart';
 import { InsulinLogModal } from '../components/InsulinLogModal';
 import { NotesLogModal } from '../components/NotesLogModal';
 import { PredictionCallout } from '../components/PredictionCallout';
 import { PredictionModal } from '../components/PredictionModal';
-import { QuickLogModal } from '../components/QuickLogModal';
 import { Card } from '../components/ui/Card';
 import { getRecentActivities } from '../lib/db/activities';
 import { getRecentNoteEntries } from '../lib/db/noteEntries';
@@ -30,7 +30,6 @@ export function DashboardScreen() {
   const styles = useMemo(() => makeStyles(colors, spacing, radius, fontScale), [colors, spacing, radius, fontScale]);
 
   const [bleModalVisible, setBleModalVisible] = useState(false);
-  const [quickLogVisible, setQuickLogVisible] = useState(false);
   const [basalDoseVisible, setBasalDoseVisible] = useState(false);
   const [predictionVisible, setPredictionVisible] = useState(false);
   const [carbsVisible, setCarbsVisible] = useState(false);
@@ -186,18 +185,17 @@ export function DashboardScreen() {
         </View>
       </Card>
 
+      <BolusWizardCard currentBG={current?.sgv ?? null} onLogged={refreshAfterLog} />
+
       <View style={styles.actionsRow}>
-        <Pressable style={styles.actionButton} onPress={() => setQuickLogVisible(true)}>
-          <Text style={styles.actionButtonText}>Bolus Wizard</Text>
-        </Pressable>
         <Pressable style={styles.actionButton} onPress={() => setBleModalVisible(true)}>
           <Text style={styles.actionButtonText}>Connect meter</Text>
         </Pressable>
-      </View>
-      <View style={styles.actionsRow}>
         <Pressable style={styles.actionButton} onPress={() => setBasalDoseVisible(true)}>
           <Text style={styles.actionButtonText}>Log Basal Dose</Text>
         </Pressable>
+      </View>
+      <View style={styles.actionsRow}>
         <Pressable style={styles.actionButton} onPress={() => setPredictionVisible(true)}>
           <Text style={styles.actionButtonText}>Prediction</Text>
         </Pressable>
@@ -208,12 +206,6 @@ export function DashboardScreen() {
         onClose={() => setBleModalVisible(false)}
         onLiveReading={reportBleLiveReading}
         onHistorySync={reportBleHistorySync}
-      />
-      <QuickLogModal
-        visible={quickLogVisible}
-        onClose={() => setQuickLogVisible(false)}
-        currentBG={current?.sgv ?? null}
-        onLogged={refreshAfterLog}
       />
       <BasalDoseModal visible={basalDoseVisible} onClose={() => setBasalDoseVisible(false)} />
       <PredictionModal visible={predictionVisible} onClose={() => setPredictionVisible(false)} />

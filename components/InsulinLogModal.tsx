@@ -11,7 +11,7 @@ interface InsulinLogModalProps {
 }
 
 // Simple Quick Action: log an insulin dose with no bolus calculation —
-// distinct from the "Bolus Wizard" flow (QuickLogModal). Stored as a
+// distinct from the "Bolus Wizard" flow (BolusWizardCard). Stored as a
 // Correction Bolus treatment with carbs left null, same schema the
 // wizard already writes to.
 export function InsulinLogModal({ visible, onClose, onLogged }: InsulinLogModalProps) {
