@@ -129,6 +129,7 @@ interface AutosensProfile {
   isfProfile: { sensitivities: Array<{ offset: number; sensitivity: number }> };
   autosens_min: number;
   autosens_max: number;
+  max_daily_basal: number;
 }
 
 interface AutosensResult {
@@ -156,7 +157,16 @@ function computeAutosens(
   profile: AutosensProfile,
   basalProfileForCob: Array<{ i: number; start: string; minutes: number; rate: number }>,
 ): AutosensResult {
-  if (glucoseReadings.length < MIN_GLUCOSE_POINTS_FOR_AUTOSENS) {
+  // autosens.js divides its basal-effect deviation by profile.max_daily_basal
+  // as a normalizing denominator (see the comment above computeAutosens).
+  // With no current basal dose logged (currentBasal === 0, e.g. the user
+  // hasn't logged today's long-acting shot yet, or its duration has
+  // lapsed), that's a division by zero — producing a NaN ratio that then
+  // poisons ISF, deviation, and eventualBG all the way through
+  // determine_basal, surfacing only as an opaque "could not calculate
+  // eventualBG" error. Bail out the same way the "not enough glucose
+  // data" case does: there's no valid basis to normalize against.
+  if (glucoseReadings.length < MIN_GLUCOSE_POINTS_FOR_AUTOSENS || profile.max_daily_basal <= 0) {
     return { ratio: 1, insufficientData: true };
   }
 
