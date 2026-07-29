@@ -61,9 +61,18 @@ export function isStale(reading: GlucoseReading): boolean {
   return Date.now() - reading.date > STALE_THRESHOLD_MS;
 }
 
-export function formatClockTime(epochMs: number): string {
-  return new Date(epochMs).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+// "2min ago" / "just now" — the status timestamp shown right-aligned
+// above the chart.
+export function formatMinutesAgo(epochMs: number): string {
+  const minutes = Math.max(0, Math.round((Date.now() - epochMs) / 60_000));
+  if (minutes === 0) return 'just now';
+  return `${minutes}min ago`;
+}
+
+// "+2" / "-3" / "0" — reading-to-reading delta shown next to the trend
+// arrow. xDrip+'s sgv.json already supplies a real delta per reading
+// (GlucoseReading.delta); this only formats it.
+export function formatDelta(delta: number): string {
+  const rounded = Math.round(delta);
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
 }

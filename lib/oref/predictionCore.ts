@@ -67,6 +67,13 @@ export type PredictionResult =
       autosensRatio: number;
       autosensAdjustedISF: number | null;
       autosensInsufficientData: boolean;
+      // 5-minute-interval predicted BG curve from determine-basal.js's own
+      // internal projection (rT.predBGs) — COB preferred when meal carbs are
+      // on board (more informative than IOB-only), else IOB, else null if
+      // neither was computed. Used to draw the dashed "leading" line on the
+      // Dashboard chart; not a clinical claim, just oref0's own forward
+      // extrapolation of current IOB/COB decay.
+      predBGs: number[] | null;
     };
 
 interface RequiredSettings {
@@ -298,6 +305,8 @@ export function computePrediction({
     throw new Error(rT.error);
   }
 
+  const predBGs: number[] | null = rT.predBGs?.COB ?? rT.predBGs?.IOB ?? null;
+
   return {
     status: 'ok',
     eventualBG: rT.eventualBG ?? null,
@@ -311,5 +320,6 @@ export function computePrediction({
     autosensRatio: autosens.ratio,
     autosensAdjustedISF: autosens.insufficientData ? null : (rT.ISF as number | undefined) ?? null,
     autosensInsufficientData: autosens.insufficientData,
+    predBGs,
   };
 }

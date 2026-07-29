@@ -462,3 +462,44 @@ scale, time format) is also still open — see Phase E's scope note.
 - `shawkinsrobertson/mdi-logger` is a prior CGM-only spike this project
   supersedes; its polling client and cleartext-HTTP fix were the
   reference for this app's first CGM screen.
+
+**Dashboard glucose card follow-up pass** (mockup-driven, same session
+as the finishing pass above): reworked the reading card per 5 specific
+requests —
+  - Glucose reading, trend arrow, unit, and the new reading-to-reading
+    **delta** (`formatDelta()` in `lib/glucose.ts`, formatting the
+    `delta` field xDrip+'s `sgv.json` already provides) are now one
+    left-aligned block (`readingCard` switched from `alignItems:
+    'center'` to `'stretch'`, with a new `readingBlock` wrapper).
+  - The old under-the-number clock-time status line is gone. In its
+    place: a right-aligned **"Nmin ago"** line (`formatMinutesAgo()`)
+    sitting just above the chart, with the STALE badge alongside it.
+  - The chart's data source changed from `GlucoseContext`'s in-memory
+    `history` (poll-bounded to xDrip+'s own `count=144` fetch) to a
+    direct `getReadingsSince()` DB query, re-run whenever the window
+    changes or a new reading lands. **Tapping the chart cycles the
+    window 3h → 6h → 12h → 24h** (`GlucoseChart`'s new `onPress` prop);
+    no schema change was needed since `glucose_readings` already
+    persists 90 days regardless of what's polled.
+  - `predictionCore.ts`'s `PredictionResult` now exposes `predBGs`
+    (`rT.predBGs.COB` preferred, else `.IOB`) — determine-basal.js's
+    own internal predicted-BG curve, not a separate calculation. Note:
+    for a perfectly flat/unchanging CGM feed, determine-basal.js takes
+    its own early "CGM data is unchanged, doing nothing" shortcut and
+    never computes `predBGs` at all (covered by a test in
+    `predictionCore.test.js` using the same declining-BG fixture as the
+    MDI fork test, since a flat fixture doesn't reach that code path).
+    Dashboard turns the first 12 points (~60min) into a dashed leading
+    line on the chart, prefixed with the last real reading for visual
+    continuity.
+  - `GlucoseChart.tsx` gained vertical dashed gridlines at an interval
+    keyed off the selected window (30/60/120/240min for 3/6/12/24h)
+    with time labels via `lib/time.ts`'s `formatTime()` — the first
+    real use of the Display setting's 12h/24h time-format preference,
+    previously built but unwired. The x-axis domain is now fixed to
+    `[now - windowHours, now]` (extended to cover the prediction line)
+    rather than derived from the data's own extent, so gridlines stay
+    on stable clock marks. The Y-axis 70/180 in-range labels went from
+    10pt to 14pt/semibold.
+  - `formatClockTime()` (superseded by `formatMinutesAgo()`) was
+    removed from `lib/glucose.ts` as dead code.

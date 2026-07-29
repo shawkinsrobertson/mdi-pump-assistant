@@ -1,32 +1,45 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ActivityLogModal } from '../components/ActivityLogModal';
 import { BasalDoseModal } from '../components/BasalDoseModal';
 import { BleMeterModal } from '../components/BleMeterModal';
 import { BolusWizardCard } from '../components/BolusWizardCard';
 import { CarbsLogModal } from '../components/CarbsLogModal';
-import { GlucoseChart, type ChartMarker } from '../components/GlucoseChart';
+import { GlucoseChart, type ChartMarker, type ChartPoint } from '../components/GlucoseChart';
 import { InsulinLogModal } from '../components/InsulinLogModal';
 import { NotesLogModal } from '../components/NotesLogModal';
 import { PredictionCallout } from '../components/PredictionCallout';
 import { PredictionModal } from '../components/PredictionModal';
 import { Card } from '../components/ui/Card';
 import { getRecentActivities } from '../lib/db/activities';
+import { getReadingsSince } from '../lib/db/glucoseReadings';
 import { getRecentNoteEntries } from '../lib/db/noteEntries';
 import { getRecentTreatments } from '../lib/db/treatments';
 import { useGlucose } from '../lib/GlucoseContext';
-import { arrowForDirection, bgColor, formatClockTime, isStale } from '../lib/glucose';
+import { arrowForDirection, bgColor, formatDelta, formatMinutesAgo, isStale } from '../lib/glucose';
 import { usePrediction } from '../lib/oref/usePrediction';
 import { quickActionStyles } from '../lib/theme';
 import { useTheme } from '../lib/ThemeContext';
 
 const MARKER_FETCH_COUNT = 50;
 
+// Cycled by tapping the chart, per the user's request to make 6/12/24h
+// views reachable without a separate control. The DB (not the poll-bounded
+// in-memory `history` from GlucoseContext) is queried for whichever window
+// is selected, since xDrip+'s own poll only ever fetches its most recent
+// ~144 readings — see lib/db/glucoseReadings.ts's retention comment.
+const CHART_WINDOWS_HOURS = [3, 6, 12, 24] as const;
+
+// How far ahead to draw the dashed prediction line — a near-term lead-in
+// rather than oref0's full internal projection (which runs out to 4h),
+// since a forecast that far out stops being a useful "leading" indicator.
+const PREDICTION_HORIZON_POINTS = 12; // 12 * 5min = 60 minutes past predBGs[0]
+
 export function DashboardScreen() {
-  const { current, history, xdripStatus, xdripError, reportBleLiveReading, reportBleHistorySync } = useGlucose();
-  const { colors, spacing, radius, iconSize, fontScale } = useTheme();
+  const { current, xdripStatus, xdripError, reportBleLiveReading, reportBleHistorySync } = useGlucose();
+  const { colors, spacing, radius, iconSize, fontScale, display } = useTheme();
   const styles = useMemo(() => makeStyles(colors, spacing, radius, fontScale), [colors, spacing, radius, fontScale]);
 
   const [bleModalVisible, setBleModalVisible] = useState(false);
@@ -38,8 +51,45 @@ export function DashboardScreen() {
   const [notesVisible, setNotesVisible] = useState(false);
   const [markers, setMarkers] = useState<ChartMarker[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [windowHours, setWindowHours] = useState<(typeof CHART_WINDOWS_HOURS)[number]>(3);
+  const [chartHistory, setChartHistory] = useState<ChartPoint[]>([]);
 
   const prediction = usePrediction(refreshToken);
+
+  const cycleWindow = useCallback(() => {
+    setWindowHours((h) => {
+      const i = CHART_WINDOWS_HOURS.indexOf(h);
+      return CHART_WINDOWS_HOURS[(i + 1) % CHART_WINDOWS_HOURS.length];
+    });
+  }, []);
+
+  // Reads straight from the DB rather than GlucoseContext's in-memory
+  // `history` — that buffer is truncated to xDrip+'s own poll size
+  // (count=144) and can't reliably cover a 12h/24h window. Re-fetches
+  // whenever the window changes or a new reading arrives (current.date
+  // changing is the signal a poll landed).
+  useEffect(() => {
+    let cancelled = false;
+    getReadingsSince(Date.now() - windowHours * 60 * 60 * 1000)
+      .then((readings) => {
+        if (cancelled) return;
+        setChartHistory(readings.map((r) => ({ time: r.date, sgv: r.sgv })));
+      })
+      .catch(() => {
+        // Non-critical — chart just won't update for this refresh.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [windowHours, current?.date]);
+
+  const predicted = useMemo<ChartPoint[]>(() => {
+    if (prediction.result?.status !== 'ok' || !prediction.result.predBGs || !current) return [];
+    return prediction.result.predBGs.slice(0, PREDICTION_HORIZON_POINTS).map((sgv, i) => ({
+      time: current.date + (i + 1) * 5 * 60 * 1000,
+      sgv,
+    }));
+  }, [prediction.result, current]);
 
   const refetchMarkers = useCallback(() => {
     Promise.all([
@@ -89,7 +139,7 @@ export function DashboardScreen() {
 
       <Card style={styles.readingCard}>
         <View style={styles.cardHeaderRow}>
-           <Text style={styles.detail}>{formatClockTime(Date.now())}</Text>
+          <Text style={styles.label}>CGM — xDrip+</Text>
           {iobCob && (
             <View style={styles.iobCobRow}>
               <View style={styles.iobCobItem}>
@@ -108,19 +158,30 @@ export function DashboardScreen() {
 
         {current !== null && (
           <>
-            <View style={styles.headerRow}>
-              <Text style={[styles.glucose, { color: bgColor(current.sgv) }]}>{current.sgv}</Text>
-              <View style={styles.arrowUnitGrp}>
-                <Text style={styles.arrow}>{arrowForDirection(current.direction)}</Text>
-                <Text style={styles.unit}>mg/dL</Text>
+            <View style={styles.readingBlock}>
+              <View style={styles.headerRow}>
+                <Text style={[styles.glucose, { color: bgColor(current.sgv) }]}>{current.sgv}</Text>
+                <View style={styles.arrowDeltaCol}>
+                  <Text style={styles.arrow}>{arrowForDirection(current.direction)}</Text>
+                  <Text style={styles.delta}>{formatDelta(current.delta)}</Text>
+                </View>
               </View>
+              <Text style={styles.unit}>mg/dL</Text>
             </View>
+
             <View style={styles.chartWrap}>
-              <View style={styles.statusRow}>
-              <Text style={styles.detail}>{formatClockTime(current.date)}</Text>
-              {isStale(current) && <Text style={styles.staleBadge}>STALE</Text>}
-            </View>
-              <GlucoseChart history={history} markers={markers} />
+              <View style={styles.chartOverlayRow}>
+                {isStale(current) && <Text style={styles.staleBadge}>STALE</Text>}
+                <Text style={styles.minAgo}>{formatMinutesAgo(current.date)}</Text>
+              </View>
+              <GlucoseChart
+                history={chartHistory}
+                markers={markers}
+                predicted={predicted}
+                windowHours={windowHours}
+                timeFormat={display.timeFormat}
+                onPress={cycleWindow}
+              />
             </View>
             <PredictionCallout
               onPress={() => setPredictionVisible(true)}
@@ -267,7 +328,10 @@ function makeStyles(
     },
     readingCard: {
       width: '100%',
-      alignItems: 'center',
+      alignItems: 'stretch',
+    },
+    readingBlock: {
+      alignItems: 'flex-start',
     },
     quickActionsCard: {
       width: '100%',
@@ -328,35 +392,39 @@ function makeStyles(
       alignItems: 'flex-start',
       gap: 8,
     },
-    arrowUnitGrp: {
-      flexDirection: 'column',
-      alignItems: 'flex-start',
-      gap: 4,
-    },
     glucose: {
       fontSize: 96 * fontScale,
       fontWeight: 'bold',
+    },
+    arrowDeltaCol: {
+      alignItems: 'flex-start',
+      marginTop: 16,
     },
     arrow: {
       fontSize: 40 * fontScale,
       fontWeight: '600',
       color: colors.text.primary,
-      marginTop: 16,
+    },
+    delta: {
+      fontSize: 16 * fontScale,
+      fontWeight: '600',
+      color: colors.text.secondary,
     },
     unit: {
-      fontSize: 14 * fontScale,
+      fontSize: 20 * fontScale,
       color: colors.text.secondary,
+      marginBottom: 12,
+    },
+    chartOverlayRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      gap: 8,
       marginBottom: 4,
     },
-    statusRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: 8,
-      marginBottom: 16,
-    },
-    detail: {
-      fontSize: 14 * fontScale,
-      color: colors.text.secondary,
+    minAgo: {
+      fontSize: 13 * fontScale,
+      color: colors.text.tertiary,
     },
     staleBadge: {
       fontSize: 11 * fontScale,
