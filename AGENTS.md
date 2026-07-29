@@ -463,6 +463,34 @@ scale, time format) is also still open — see Phase E's scope note.
   supersedes; its polling client and cleartext-HTTP fix were the
   reference for this app's first CGM screen.
 
+**Follow-up correction pass on the glucose card** (immediately after the
+above, same session): user feedback on the first pass flagged 3 real
+issues, verified visually via a static HTML/CSS repro of the exact style
+values rendered through headless Chromium (no device/emulator available
+in this environment) before committing —
+  - "mg/dL" pixel-aligned at the same x as the 96pt glucose number still
+    looked offset further left, because the numeral glyph (particularly
+    "1") has much more built-in left bearing than "mg/dL"'s "m". Added a
+    small `marginLeft` nudge to the unit text to match the number's
+    visual ink edge rather than its box edge. Same issue mirrored on the
+    right: "min ago" flush against the card's true right edge looked
+    like it overshot the chart, since the chart's own SVG right padding
+    (`PADDING.right`) means the plotted line/bands stop short of that
+    edge. `GlucoseChart.tsx` now exports `CHART_RIGHT_PADDING_RATIO` so
+    Dashboard's overlay row can match it exactly instead of guessing.
+  - The dashed prediction line wasn't rendering. Root cause:
+    determine-basal.js has its own early "CGM data is unchanged, doing
+    nothing" shortcut (real, common — many CGM sources report a genuine
+    0 delta between consecutive readings) that returns before ever
+    computing `predBGs` — that's a pump temp-basal decision, not a
+    reason to predict nothing. `predictionCore.ts` now replicates that
+    same flat-detection condition and, when it fires, fills `predBGs`
+    with a flat line at the current glucose instead of `null` — a
+    faithful visualization of oref0's own conclusion, not a fabrication.
+  - The chart read as too small to be legible. Bumped `GlucoseChart.tsx`'s
+    `HEIGHT` constant from 280 to 364 (+30%, width already fills the
+    card so height was the only lever).
+
 **Dashboard glucose card follow-up pass** (mockup-driven, same session
 as the finishing pass above): reworked the reading card per 5 specific
 requests —

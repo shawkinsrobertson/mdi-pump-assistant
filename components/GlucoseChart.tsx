@@ -26,9 +26,14 @@ interface GlucoseChartProps {
 }
 
 const WIDTH = 800;
-const HEIGHT = 280;
+const HEIGHT = 364; // +30% vs the original 280 — the smaller chart read as too small/hard to read
 const PADDING = { top: 24, right: 24, bottom: 32, left: 46 };
 const MARKER_SIZE = 7;
+
+// Exposed so DashboardScreen can inset its right-aligned "min ago" label by
+// the same amount, rather than aligning it to the raw card edge — the SVG's
+// own right padding means the plotted line/bands stop short of that edge.
+export const CHART_RIGHT_PADDING_RATIO = PADDING.right / WIDTH;
 
 // Vertical gridline spacing, keyed by the selected window — wider windows
 // use coarser intervals so labels never crowd together, while the 3h

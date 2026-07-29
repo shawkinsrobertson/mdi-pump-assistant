@@ -7,7 +7,7 @@ import { BasalDoseModal } from '../components/BasalDoseModal';
 import { BleMeterModal } from '../components/BleMeterModal';
 import { BolusWizardCard } from '../components/BolusWizardCard';
 import { CarbsLogModal } from '../components/CarbsLogModal';
-import { GlucoseChart, type ChartMarker, type ChartPoint } from '../components/GlucoseChart';
+import { CHART_RIGHT_PADDING_RATIO, GlucoseChart, type ChartMarker, type ChartPoint } from '../components/GlucoseChart';
 import { InsulinLogModal } from '../components/InsulinLogModal';
 import { NotesLogModal } from '../components/NotesLogModal';
 import { PredictionCallout } from '../components/PredictionCallout';
@@ -414,6 +414,12 @@ function makeStyles(
       fontSize: 20 * fontScale,
       color: colors.text.secondary,
       marginBottom: 12,
+      // The "1" glyph in the 96pt glucose number has a lot of built-in left
+      // bearing (its ink sits well right of the box edge), while "mg/dL"'s
+      // "m" doesn't — pixel-aligning both at x=0 left "mg/dL" looking like
+      // it hangs out further left than the number above it. This nudges it
+      // to match the number's visual (not box) left edge instead.
+      marginLeft: 8,
     },
     chartOverlayRow: {
       flexDirection: 'row',
@@ -421,6 +427,10 @@ function makeStyles(
       justifyContent: 'flex-end',
       gap: 8,
       marginBottom: 4,
+      // Matches the chart's own right-side SVG padding so "min ago" lines
+      // up over the plotted line/bands, not the card's raw right edge
+      // (which the plot itself never reaches).
+      paddingRight: `${CHART_RIGHT_PADDING_RATIO * 100}%`,
     },
     minAgo: {
       fontSize: 13 * fontScale,

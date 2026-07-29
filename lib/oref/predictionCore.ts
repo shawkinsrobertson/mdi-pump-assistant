@@ -305,7 +305,24 @@ export function computePrediction({
     throw new Error(rT.error);
   }
 
-  const predBGs: number[] | null = rT.predBGs?.COB ?? rT.predBGs?.IOB ?? null;
+  // determine-basal.js has its own early "CGM data is unchanged, doing
+  // nothing" shortcut (glucose_status.delta/short_avgdelta/long_avgdelta
+  // all ~0) that returns before ever computing predBGs — designed for a
+  // pump deciding whether to touch a running temp basal, not a reason to
+  // predict nothing. Replicated here (same fields/thresholds) so that when
+  // it fires, the Dashboard chart still gets a flat continuation line —
+  // which is exactly what oref0 itself concluded ("nothing is changing"),
+  // not a fabricated guess.
+  const tooFlat =
+    glucoseStatus.glucose > 60 &&
+    glucoseStatus.delta === 0 &&
+    glucoseStatus.short_avgdelta > -1 &&
+    glucoseStatus.short_avgdelta < 1 &&
+    glucoseStatus.long_avgdelta > -1 &&
+    glucoseStatus.long_avgdelta < 1;
+
+  const predBGs: number[] | null =
+    rT.predBGs?.COB ?? rT.predBGs?.IOB ?? (tooFlat ? Array(13).fill(glucoseStatus.glucose) : null);
 
   return {
     status: 'ok',
