@@ -1,6 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AgpChart } from '../components/AgpChart';
 import { Card } from '../components/ui/Card';
 import { getReadingsSince } from '../lib/db/glucoseReadings';
@@ -63,7 +64,17 @@ export function TrendsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Trends</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Trends</Text>
+        <Pressable
+          onPress={() => Alert.alert('Export', 'Clinician export is coming soon.')}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Export"
+        >
+          <Ionicons name="share-outline" size={24} color={colors.text.primary} />
+        </Pressable>
+      </View>
 
       <Card style={styles.card}>
         <Text style={styles.cardTitle}>Time in Range</Text>
@@ -161,17 +172,22 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 120,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
     color: colors.text.primary,
   },
   card: {
     marginBottom: spacing.base,
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     marginBottom: 12,
     color: colors.text.primary,
@@ -187,10 +203,10 @@ const styles = StyleSheet.create({
   percentRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   percentLabel: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '700',
   },
   belowLabel: {
@@ -222,12 +238,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.status.warning,
   },
   rangeNote: {
-    fontSize: 12,
+    fontSize: 14,
     color: colors.text.tertiary,
     marginTop: 8,
   },
   summaryValue: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: '700',
     color: colors.accent.info,
     textAlign: 'center',
@@ -243,7 +259,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border.default,
     borderRadius: radius.md,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: 'center',
     backgroundColor: colors.bg.primary,
   },
@@ -254,7 +270,7 @@ const styles = StyleSheet.create({
   toggleText: {
     color: colors.text.secondary,
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: 14,
   },
   toggleTextActive: {
     color: colors.text.inverse,

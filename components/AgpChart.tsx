@@ -8,9 +8,10 @@ interface AgpChartProps {
 }
 
 const WIDTH = 800;
-const HEIGHT = 220;
-const PADDING = { top: 16, right: 16, bottom: 24, left: 36 };
+const HEIGHT = 340;
+const PADDING = { top: 20, right: 20, bottom: 32, left: 44 };
 const MINUTES_PER_DAY = 24 * 60;
+const LABEL_FONT_SIZE = 14;
 
 // Builds a closed "area between two curves" path from an upper and lower
 // series over the same x positions, skipping buckets with no data —
@@ -34,9 +35,15 @@ export function AgpChart({ buckets }: AgpChartProps) {
   const withData = buckets.filter((b) => b.count > 0 && b.p10 != null);
   if (withData.length === 0) return null;
 
+  // Pad the y-domain around the actual data range (rather than forcing a
+  // fixed 40-260 window) so a typical, narrower glucose range doesn't
+  // render as a thin band lost in a mostly-empty chart.
   const allValues = withData.flatMap((b) => [b.p10!, b.p90!]);
-  const minV = Math.min(40, ...allValues);
-  const maxV = Math.max(260, ...allValues);
+  const dataMin = Math.min(...allValues);
+  const dataMax = Math.max(...allValues);
+  const pad = Math.max(15, (dataMax - dataMin) * 0.2);
+  const minV = Math.max(20, dataMin - pad);
+  const maxV = Math.min(400, dataMax + pad);
 
   const x = (minuteOfDay: number) =>
     PADDING.left + (minuteOfDay / MINUTES_PER_DAY) * (WIDTH - PADDING.left - PADDING.right);
@@ -50,7 +57,7 @@ export function AgpChart({ buckets }: AgpChartProps) {
   return (
     <View style={{ width: '100%', aspectRatio: WIDTH / HEIGHT }}>
       <Svg width="100%" height="100%" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none">
-        {[70, 180].map((v) => (
+        {[70, 180].filter((v) => v >= minV && v <= maxV).map((v) => (
           <Line
             key={`grid-${v}`}
             x1={PADDING.left}
@@ -62,8 +69,15 @@ export function AgpChart({ buckets }: AgpChartProps) {
             strokeWidth={1}
           />
         ))}
-        {[70, 180].map((v) => (
-          <SvgText key={`label-${v}`} x={PADDING.left - 6} y={y(v) + 3} textAnchor="end" fontSize={10} fill={COLORS.muted}>
+        {[70, 180].filter((v) => v >= minV && v <= maxV).map((v) => (
+          <SvgText
+            key={`label-${v}`}
+            x={PADDING.left - 6}
+            y={y(v) + 4}
+            textAnchor="end"
+            fontSize={LABEL_FONT_SIZE}
+            fill={COLORS.muted}
+          >
             {v}
           </SvgText>
         ))}
@@ -72,9 +86,9 @@ export function AgpChart({ buckets }: AgpChartProps) {
           <SvgText
             key={`hour-${hour}`}
             x={x(hour * 60)}
-            y={HEIGHT - 6}
+            y={HEIGHT - 8}
             textAnchor="middle"
-            fontSize={10}
+            fontSize={LABEL_FONT_SIZE}
             fill={COLORS.muted}
           >
             {hour === 24 ? '24:00' : `${hour}:00`}
