@@ -15,20 +15,49 @@ interface PredictionCalloutProps {
 // still lives in PredictionModal, opened by tapping this callout.
 export function PredictionCallout({ onPress, refreshToken }: PredictionCalloutProps) {
   const [result, setResult] = useState<PredictionResult | null>(null);
+  // Distinct from "still loading" — a thrown error must never collapse
+  // into the same silent-null state as "haven't checked yet", or a real
+  // failure becomes invisible instead of surfaced (see AGENTS.md: never
+  // let a bad state silently feed the calculator).
+  const [error, setError] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
 
   const check = useCallback(() => {
     runPrediction()
-      .then(setResult)
-      .catch(() => setResult(null));
+      .then((r) => {
+        setResult(r);
+        setError(null);
+      })
+      .catch((e) => {
+        setResult(null);
+        setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => setChecked(true));
   }, []);
 
   useEffect(() => {
     check();
   }, [check, refreshToken]);
 
-  // Nothing useful to show yet — don't clutter the dashboard with a
-  // permanent "no data" line for a fresh install.
-  if (result === null || result.status === 'no-glucose-data') return null;
+  if (!checked) return null; // brief initial load only
+
+  if (error) {
+    return (
+      <Pressable style={styles.row} onPress={onPress}>
+        <Text style={styles.errorText}>Couldn't check prediction: {error}</Text>
+      </Pressable>
+    );
+  }
+
+  if (result === null) return null;
+
+  if (result.status === 'no-glucose-data') {
+    return (
+      <View style={styles.row}>
+        <Text style={styles.mutedText}>Not enough glucose history yet for a prediction.</Text>
+      </View>
+    );
+  }
 
   if (result.status === 'settings-incomplete') {
     return (
@@ -78,6 +107,10 @@ const styles = StyleSheet.create({
   mutedText: {
     fontSize: 13,
     color: colors.text.tertiary,
+  },
+  errorText: {
+    fontSize: 13,
+    color: colors.status.danger,
   },
   okText: {
     fontSize: 13,
