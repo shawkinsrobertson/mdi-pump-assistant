@@ -491,6 +491,19 @@ in this environment) before committing —
     `HEIGHT` constant from 280 to 364 (+30%, width already fills the
     card so height was the only lever).
 
+**Second follow-up: shrink the reading, enlarge the chart further.**
+User feedback: the "mg/dL" gap was still too big, and the chart should be
+this card's focal point rather than the number. Reduced `glucose` from
+96pt to 60pt (and `arrow`/`delta` proportionally, 40→26 / 16→13), which
+freed up room to grow `GlucoseChart.tsx`'s `HEIGHT` again, 364→500.
+Re-derived `unit`'s `marginTop` (now -12, down from the implicit 0) by
+measuring actual rendered pixel rows in the headless-Chromium repro
+rather than eyeballing it — the glucose number's line box leaves empty
+space below the digits beyond their visible ink (ordinary font metrics),
+so closing that gap to the requested ~4px needed a negative offset, not
+just a smaller positive one. `marginLeft` also scaled down (8→5) to
+match the smaller font's proportionally smaller optical inset.
+
 **Dashboard glucose card follow-up pass** (mockup-driven, same session
 as the finishing pass above): reworked the reading card per 5 specific
 requests —

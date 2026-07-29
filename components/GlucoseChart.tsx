@@ -26,7 +26,7 @@ interface GlucoseChartProps {
 }
 
 const WIDTH = 800;
-const HEIGHT = 364; // +30% vs the original 280 — the smaller chart read as too small/hard to read
+const HEIGHT = 500; // the chart is this card's focal point — enlarged again alongside shrinking the reading number
 const PADDING = { top: 24, right: 24, bottom: 32, left: 46 };
 const MARKER_SIZE = 7;
 

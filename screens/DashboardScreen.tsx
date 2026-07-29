@@ -393,33 +393,41 @@ function makeStyles(
       gap: 8,
     },
     glucose: {
-      fontSize: 96 * fontScale,
+      // Deliberately smaller than the reference mockup's 96pt — the chart
+      // is meant to be this card's focal point, not the number.
+      fontSize: 60 * fontScale,
       fontWeight: 'bold',
     },
     arrowDeltaCol: {
       alignItems: 'flex-start',
-      marginTop: 16,
+      marginTop: 8,
     },
     arrow: {
-      fontSize: 40 * fontScale,
+      fontSize: 26 * fontScale,
       fontWeight: '600',
       color: colors.text.primary,
     },
     delta: {
-      fontSize: 16 * fontScale,
+      fontSize: 13 * fontScale,
       fontWeight: '600',
       color: colors.text.secondary,
     },
     unit: {
-      fontSize: 20 * fontScale,
+      fontSize: 16 * fontScale,
       color: colors.text.secondary,
-      marginBottom: 12,
-      // The "1" glyph in the 96pt glucose number has a lot of built-in left
-      // bearing (its ink sits well right of the box edge), while "mg/dL"'s
-      // "m" doesn't — pixel-aligning both at x=0 left "mg/dL" looking like
-      // it hangs out further left than the number above it. This nudges it
-      // to match the number's visual (not box) left edge instead.
-      marginLeft: 8,
+      marginBottom: 8,
+      // The glucose number's line box has empty space below the digits
+      // beyond their visible ink (ordinary font metrics, not a bug) — a
+      // negative marginTop closes that down to a tight ~4px gap between
+      // the number and "mg/dL" instead of the much larger gap the raw
+      // line box would otherwise leave.
+      marginTop: -12,
+      // The "1" glyph has a lot of built-in left bearing (its ink sits
+      // well right of the box edge), while "mg/dL"'s "m" doesn't —
+      // pixel-aligning both at x=0 left "mg/dL" looking like it hangs out
+      // further left than the number above it. This nudges it to match
+      // the number's visual (not box) left edge instead.
+      marginLeft: 5,
     },
     chartOverlayRow: {
       flexDirection: 'row',
