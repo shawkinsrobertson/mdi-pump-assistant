@@ -294,19 +294,17 @@ Time in Range / Developer cards) all use the new Card. Logbook now
 groups entries under Today/Yesterday/date section headers.
 
 **On-device UI issues flagged from the first restyle pass (screenshots
-of Dashboard + Trends), queued for next session, not yet fixed:**
+of Dashboard + Trends):**
 - Dashboard: content (reading card + action buttons) no longer
   vertically centers on short screens now that it's a `ScrollView`
   instead of a centered `View` — leaves a large empty gap above the tab
   bar. Fix likely `flexGrow: 1` + `justifyContent: 'center'` on
   `contentContainerStyle`, or accept top-alignment and tighten spacing
-  instead.
-- Trends: the AGP chart (`components/AgpChart.tsx`) renders as a thin
-  squiggle occupying only the middle portion of its card, with large
-  unused margins on all sides — doesn't fill the chart area the way the
-  Dashboard glucose chart does. Needs a scaling/viewBox look, and
-  probably a taller card, since the user described it as "too small to
-  make sense of."
+  instead. **Still open.**
+- ~~Trends: the AGP chart renders as a thin squiggle...~~ **Fixed** —
+  `components/AgpChart.tsx` now uses a data-adaptive y-domain (was a
+  fixed 40-260 range) and a taller aspect ratio; Trends labels bumped to
+  >=14pt. See the "user flow diagrams" work below.
 - Bottom tab bar: user reports icons read as "very tiny" — current
   `iconSize.base` (26px) may need to move up a step (`lg`/32px), and/or
   the pill needs more padding. (The dark strip visible below the pill in
@@ -320,10 +318,48 @@ of Dashboard + Trends), queued for next session, not yet fixed:**
   below) — the "missing elements" feedback likely includes these; not a
   new regression.
 
-Not done yet: edit/delete on logged treatments and basal doses (the
-revised Logbook mockup shows inline edit/delete row actions, but that
-needs real DB delete support + confirmation UX — deliberately not
-half-built), the exponential IOB model (current model is an explicitly-
+## User flow diagrams (2nd design pass)
+
+The user provided flowchart diagrams + notes covering: Quick Actions/
+Bolus Wizard flow, a Connect Meter flow (entry point on Logbook), a
+Logbook entry edit/delete flow, global rules (back nav everywhere,
+confirm-before-submit on every log/edit/delete, voice entry on
+treatment/notes fields), a Dashboard prediction callout, a 6-card
+Settings restructure, Trends/Logbook screen specifics, and full Quick
+Actions detail (Carbs/Insulin/Activity/Notes + chart markers). Broken
+into lettered phases, tracked as tasks:
+
+- **Phase A (done):** Trends visual scaling + export icon — see above.
+- **Phase B (done):** Logbook edit/delete CRUD, a `notes` column on
+  both `treatments` and `basal_doses` (migrated in), a search bar
+  (`lib/logbookEntry.ts`, `components/LogbookEntryModal.tsx`), and a
+  "Connect meter" link added to Logbook (Dashboard's own entry point
+  was left in place, not removed — the flow diagram didn't say to
+  remove it). Search is text-only (matches type/date-string/notes) —
+  no true date-range picker yet, since no calendar library is in the
+  project.
+- **Phase C (not started):** Activity + Notes quick actions, chart
+  timeline markers per action type, confirm-before-submit added to
+  every log/save action app-wide (Quick Actions, Bolus Wizard, Basal
+  Dose — none of these have a confirm step yet).
+- **Phase D (not started):** Bolus Wizard's accept/modify suggestion
+  step, Dashboard prediction callout under the glucose graph.
+- **Phase E (not started):** Settings restructured into 6 cards —
+  Integrations (placeholder), Account/Profile+Treatment Configurations
+  (real — absorbs the current Dosing/TIR fields), Display and Theme
+  (real: dark/light/system, font size, 12/24hr — a genuine app-wide
+  theming feature, not just this card), Notifications and Reminders
+  (real: high/low glucose thresholds + DND — needs `expo-notifications`
+  + permissions, likely a dev-client rebuild), Data and Sharing
+  (placeholder), Tutorials and Help (placeholder).
+- **Phase F (not started):** Back-navigation audit on secondary/modal
+  screens (started: `LogbookEntryModal` has a back chevron header —
+  match this pattern going forward), Dashboard "Welcome, User" header,
+  voice entry (mic icon) on treatment/notes inputs — flagged as its own
+  native-dependency risk (real speech-to-text needs a library like
+  `@react-native-voice/voice`, same rebuild category as the BLE work).
+
+Not done yet: the exponential IOB model (current model is an explicitly-
 flagged linear placeholder — separate from the vendored oref0 IOB calc,
 which is used only for the prediction engine), Trends' Patterns/
 Insights (an LLM feature) and clinician export, Dashboard's IOB/COB
