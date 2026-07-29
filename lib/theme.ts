@@ -5,7 +5,32 @@ import { Platform, type ViewStyle } from 'react-native';
 // system work. Keep these two in sync by hand; there's no live Code
 // Connect binding (Figma Code Connect needs an Org/Enterprise plan we
 // don't have — see AGENTS.md).
-export const colors = {
+//
+// Two palettes (light/dark) rather than one static `colors` export —
+// see lib/ThemeContext.tsx for how a screen actually consumes these via
+// useTheme(). Only Settings (and its new sub-screens) consume the
+// resolved theme so far; Dashboard/Logbook/Trends still import the
+// static `colors` below (== lightColors) and haven't been wired into
+// dark mode yet — tracked as follow-up, not forgotten.
+export interface ThemeColors {
+  brand: string;
+  bg: { primary: string; surface: string };
+  border: { default: string; subtle: string; muted: string };
+  text: {
+    primary: string;
+    secondary: string;
+    tertiary: string;
+    quaternary: string;
+    label: string;
+    placeholder: string;
+    inverse: string;
+  };
+  status: { success: string; successStrong: string; danger: string; warning: string };
+  accent: { info: string };
+  action: { primaryBg: string; secondaryBg: string };
+}
+
+export const lightColors: ThemeColors = {
   brand: '#054AE1', // favicon / splash icon blue — Figma style "brand/primary"
   bg: {
     primary: '#FFFFFF',
@@ -38,7 +63,45 @@ export const colors = {
     primaryBg: '#111111',
     secondaryBg: '#888888',
   },
-} as const;
+};
+
+export const darkColors: ThemeColors = {
+  brand: '#4C8DFF',
+  bg: {
+    primary: '#1C1C1E',
+    surface: '#000000',
+  },
+  border: {
+    default: '#3A3A3C',
+    subtle: '#2C2C2E',
+    muted: '#242426',
+  },
+  text: {
+    primary: '#FFFFFF',
+    secondary: '#C7C7CC',
+    tertiary: '#8E8E93',
+    quaternary: '#636366',
+    label: '#E5E5EA',
+    placeholder: '#6E6E73',
+    inverse: '#FFFFFF',
+  },
+  status: {
+    success: '#32D74B',
+    successStrong: '#248A3D',
+    danger: '#FF453A',
+    warning: '#FF9F0A',
+  },
+  accent: {
+    info: '#5E9CFF',
+  },
+  action: {
+    primaryBg: '#2C2C2E',
+    secondaryBg: '#48484A',
+  },
+};
+
+// Back-compat default export for screens not yet migrated to useTheme().
+export const colors = lightColors;
 
 export const spacing = {
   xs: 4,
@@ -74,7 +137,8 @@ export const iconSize = {
 // between each Quick Action button's icon color and its glucose-chart
 // timeline marker shape, so the two stay visually coherent per the
 // design spec ("quick action button icons should be updated with
-// corresponding colored shape").
+// corresponding colored shape"). Same in both themes — all mid-
+// saturation accent colors read fine on either background.
 export type MarkerShape = 'circle' | 'diamond' | 'triangle' | 'square';
 
 export const quickActionStyles: Record<'carbs' | 'insulin' | 'activity' | 'note', { color: string; shape: MarkerShape }> = {
@@ -98,3 +162,11 @@ export const cardShadow: ViewStyle = Platform.select({
   },
   default: {},
 }) as ViewStyle;
+
+// Font size scale multipliers for the Display and Theme setting.
+export type FontSizePreference = 'small' | 'medium' | 'large';
+export const FONT_SCALE: Record<FontSizePreference, number> = {
+  small: 0.9,
+  medium: 1,
+  large: 1.15,
+};

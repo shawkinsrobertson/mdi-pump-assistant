@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.seamusrobertson.mdipumpassistant"
@@ -22,7 +22,8 @@
       "permissions": [
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
-        "android.permission.BLUETOOTH_CONNECT"
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "plugins": [
@@ -41,6 +42,13 @@
           "isBackgroundEnabled": false,
           "neverForLocation": true,
           "bluetoothAlwaysPermission": "Allow $(PRODUCT_NAME) to connect to your Bluetooth glucose meter"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#054AE1"
         }
       ]
     ],

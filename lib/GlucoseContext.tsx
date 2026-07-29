@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ChartPoint } from '../components/GlucoseChart';
 import type { GlucoseReading } from './glucose';
+import { checkGlucoseAndNotify, readNotificationSettings, type NotificationSettings } from './notifications';
 import { useGlucoseSource } from './useGlucoseSource';
 
 // Lifted above the tab navigator (rather than owned by DashboardScreen)
@@ -57,6 +58,20 @@ export function GlucoseProvider({ children }: { children: ReactNode }) {
     const timer = setInterval(fetchReading, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [fetchReading]);
+
+  // Fires a local notification when a new reading crosses the user's
+  // high/low thresholds (Settings > Notifications and Reminders) — see
+  // lib/notifications.ts for the threshold/DND/cooldown logic itself.
+  const lastCheckedReadingId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!current) return;
+    const readingKey = `${current.date}:${current.sgv}`;
+    if (lastCheckedReadingId.current === readingKey) return;
+    lastCheckedReadingId.current = readingKey;
+    readNotificationSettings()
+      .then((settings: NotificationSettings) => checkGlucoseAndNotify(current, settings))
+      .catch((e) => console.error('Failed to check glucose notification thresholds:', e));
+  }, [current]);
 
   const reportBleLiveReading = useCallback(
     (reading: GlucoseReading) => reportReading('ble', reading),

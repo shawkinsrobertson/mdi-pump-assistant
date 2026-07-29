@@ -268,10 +268,10 @@ export remain "coming soon".
 `lib/importers/nightscout.ts` parses real Nightscout-format entries/
 treatments exports (the same shape AAPS/xDrip+/Nightscout all produce).
 `scripts/seed-data/` bundles a small real export for testing, loaded via
-a "Seed test data" button under Settings > Developer. This is explicitly
-**not** the v1 import feature — the user wants a real "Import from
-Nightscout backup" feature eventually (Settings > Data and Sharing per
-the mockups), but v1 targets MDI users without that kind of migration
+a "Seed test data" button under Settings > Data and Sharing. This is
+explicitly **not** the v1 import feature — the user wants a real "Import
+from Nightscout backup" feature eventually (also Settings > Data and
+Sharing), but v1 targets MDI users without that kind of migration
 tooling. The seed button/bundled data should be removed before any real
 release build.
 
@@ -380,32 +380,59 @@ into lettered phases, tracked as tasks:
   fixture happened to include a logged basal dose except the one under
   the glucose-count threshold — this exact combination (>=72 points,
   zero basal) was untested; a regression test for it is now in place.
-- **Phase E (not started):** Settings restructured into 6 cards —
-  Integrations (placeholder), Account/Profile+Treatment Configurations
-  (real — absorbs the current Dosing/TIR fields), Display and Theme
-  (real: dark/light/system, font size, 12/24hr — a genuine app-wide
-  theming feature, not just this card), Notifications and Reminders
-  (real: high/low glucose thresholds + DND — needs `expo-notifications`
-  + permissions, likely a dev-client rebuild), Data and Sharing
-  (placeholder), Tutorials and Help (placeholder).
-- **Phase F (not started):** Back-navigation audit on secondary/modal
-  screens (started: `LogbookEntryModal` has a back chevron header —
-  match this pattern going forward), Dashboard "Welcome, User" header,
-  voice entry (mic icon) on treatment/notes inputs — flagged as its own
-  native-dependency risk (real speech-to-text needs a library like
-  `@react-native-voice/voice`, same rebuild category as the BLE work).
+- **Phase E (done):** Settings is now a nested stack
+  (`screens/settings/SettingsNavigator.tsx`) — a home screen listing 6
+  category cards, each its own screen with a real back button (also
+  covers part of Phase F's back-nav requirement). Integrations,
+  Tutorials and Help, and Data and Sharing (besides the moved dev seed
+  tool) are placeholder "coming soon" screens. Account and Profile is
+  real — absorbs the old Dosing + Time in Range cards, merged with
+  Treatment Configurations per the spec (no account system exists yet).
+  Display and Theme and Notifications and Reminders are both real,
+  working features, not placeholders:
+  - **Theming** (`lib/ThemeContext.tsx`, `lib/theme.ts`'s
+    `lightColors`/`darkColors`): persisted mode (light/dark/system,
+    resolved against `useColorScheme()`), font size, and 12h/24h time
+    format (`lib/time.ts`'s `formatTime`, not yet wired into any
+    screen's actual clock display). **Scope note:** only Settings
+    itself consumes `useTheme()` and re-renders on theme/font changes
+    today. Dashboard/Logbook/Trends still import `lib/theme.ts`'s
+    static `colors` (== `lightColors`) and won't visually respond to
+    dark mode yet — deliberately deferred so the mechanical "migrate
+    every screen's styles to useTheme()" pass happens alongside the
+    Dashboard UI work the user wants to do next, rather than rushed
+    through blind here. `app.json`'s `userInterfaceStyle` was changed
+    from `"light"` (hard-locked) to `"automatic"` so the OS-level
+    setting no longer fights the in-app one.
+  - **Notifications** (`lib/notifications.ts`): persisted high/low
+    glucose thresholds + DND window, real permission request flow, and
+    actually wired into `GlucoseContext`'s live reading flow — a new
+    reading crossing a threshold fires a real local notification
+    (with a 20-minute re-notify cooldown per zone, and a DND check).
+    New native module (`expo-notifications`) — **needs a dev-client
+    rebuild** (`npx expo run:android`) before any of this can be
+    tested on-device, same category as the BLE/react-native-screens
+    additions. Also added `@react-navigation/native-stack` for the
+    Settings navigator itself — same rebuild requirement.
+- **Phase F (partly done via Phase E):** `LogbookEntryModal` and all 6
+  Settings sub-screens now have real back navigation (the stack's own
+  header, or a chevron). Still open: Dashboard "Welcome, User" header,
+  and voice entry (mic icon) on treatment/notes inputs — flagged as its
+  own native-dependency risk (needs a library like
+  `@react-native-voice/voice`, same rebuild category as the above).
 
 Not done yet: the exponential IOB model (current model is an explicitly-
 flagged linear placeholder — separate from the vendored oref0 IOB calc,
 which is used only for the prediction engine), Trends' Patterns/
 Insights (an LLM feature) and clinician export, Dashboard's IOB/COB
-header stat / Quick Actions row / collapsible Bolus Wizard card (all
-visible in the reference mockup but not yet built — restyle only landed
-tonight, no new Dashboard functionality), the real (v1+) Nightscout
-import feature, and a live-timer notification for Activity logging (a
-simpler start/duration-only version is planned first). The BLE meter's
-RACP "Sync History" still hits a `GATT_INTERNAL_ERROR` that hasn't been
-resolved.
+header stat and the collapsible Bolus Wizard card (visible in the
+reference mockup, not yet built — Quick Actions *is* now built, see
+Phase C), the real (v1+) Nightscout import feature, and a live-timer
+notification for Activity logging (a simpler start/duration-only
+version is what's built now). The BLE meter's RACP "Sync History" still
+hits a `GATT_INTERNAL_ERROR` that hasn't been resolved. Migrating
+Dashboard/Logbook/Trends onto the new theme system (dark mode, font
+scale, time format) is also still open — see Phase E's scope note.
 
 - `shawkinsrobertson/shelbyai-diabetes-assistant` is the web dashboard
   this app's bolus wizard and Quick Log UX were ported from.
