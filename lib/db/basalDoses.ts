@@ -13,12 +13,20 @@ export interface BasalDoseRecord {
   type: LongActingInsulinType;
   units: number;
   injectedAt: string; // ISO 8601
+  notes: string | null;
 }
 
 export interface NewBasalDose {
   type: LongActingInsulinType;
   units: number;
   injectedAt: string; // ISO 8601
+  notes?: string | null;
+}
+
+export interface BasalDoseEdits {
+  type: LongActingInsulinType;
+  units: number;
+  notes: string | null;
 }
 
 export class DuplicateBasalDoseError extends Error {}
@@ -36,6 +44,13 @@ function getDb(): SQLiteDatabase {
         injected_at TEXT NOT NULL
       );
     `);
+    // Migration for installs created before the `notes` column existed —
+    // ALTER TABLE has no IF NOT EXISTS, so guard with a try/catch instead.
+    try {
+      db.execSync(`ALTER TABLE basal_doses ADD COLUMN notes TEXT;`);
+    } catch {
+      // column already exists
+    }
   }
   return db;
 }
@@ -45,10 +60,11 @@ interface BasalDoseRow {
   type: LongActingInsulinType;
   units: number;
   injected_at: string;
+  notes: string | null;
 }
 
 function fromRow(row: BasalDoseRow): BasalDoseRecord {
-  return { id: row.id, type: row.type, units: row.units, injectedAt: row.injected_at };
+  return { id: row.id, type: row.type, units: row.units, injectedAt: row.injected_at, notes: row.notes ?? null };
 }
 
 // Same dedup-at-write-time approach as insertTreatment: a double-tap must
@@ -68,12 +84,28 @@ export async function insertBasalDose(input: NewBasalDose): Promise<BasalDoseRec
     );
   }
 
+  const notes = input.notes ?? null;
   const result = await database.runAsync(
-    `INSERT INTO basal_doses (type, units, injected_at) VALUES (?, ?, ?)`,
-    [input.type, input.units, input.injectedAt],
+    `INSERT INTO basal_doses (type, units, injected_at, notes) VALUES (?, ?, ?, ?)`,
+    [input.type, input.units, input.injectedAt, notes],
   );
 
-  return { id: result.lastInsertRowId, type: input.type, units: input.units, injectedAt: input.injectedAt };
+  return { id: result.lastInsertRowId, type: input.type, units: input.units, injectedAt: input.injectedAt, notes };
+}
+
+export async function updateBasalDose(id: number, edits: BasalDoseEdits): Promise<void> {
+  const database = getDb();
+  await database.runAsync(`UPDATE basal_doses SET type = ?, units = ?, notes = ? WHERE id = ?`, [
+    edits.type,
+    edits.units,
+    edits.notes,
+    id,
+  ]);
+}
+
+export async function deleteBasalDose(id: number): Promise<void> {
+  const database = getDb();
+  await database.runAsync(`DELETE FROM basal_doses WHERE id = ?`, [id]);
 }
 
 export async function getRecentBasalDoses(count: number): Promise<BasalDoseRecord[]> {

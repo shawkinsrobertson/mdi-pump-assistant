@@ -11,6 +11,7 @@ export interface Treatment {
   insulin: number | null;
   carbs: number | null;
   createdAt: string; // ISO 8601
+  notes: string | null;
 }
 
 export interface NewTreatment {
@@ -18,6 +19,14 @@ export interface NewTreatment {
   insulin: number | null;
   carbs: number | null;
   createdAt: string; // ISO 8601
+  notes?: string | null;
+}
+
+export interface TreatmentEdits {
+  eventType: EventType;
+  insulin: number | null;
+  carbs: number | null;
+  notes: string | null;
 }
 
 export class DuplicateTreatmentError extends Error {}
@@ -40,6 +49,13 @@ function getDb(): SQLiteDatabase {
         synced INTEGER DEFAULT 0
       );
     `);
+    // Migration for installs created before the `notes` column existed —
+    // ALTER TABLE has no IF NOT EXISTS, so guard with a try/catch instead.
+    try {
+      db.execSync(`ALTER TABLE treatments ADD COLUMN notes TEXT;`);
+    } catch {
+      // column already exists
+    }
   }
   return db;
 }
@@ -50,6 +66,7 @@ interface TreatmentRow {
   insulin: number | null;
   carbs: number | null;
   created_at: string;
+  notes: string | null;
 }
 
 function fromRow(row: TreatmentRow): Treatment {
@@ -59,6 +76,7 @@ function fromRow(row: TreatmentRow): Treatment {
     insulin: row.insulin,
     carbs: row.carbs,
     createdAt: row.created_at,
+    notes: row.notes ?? null,
   };
 }
 
@@ -84,9 +102,10 @@ export async function insertTreatment(input: NewTreatment): Promise<Treatment> {
     );
   }
 
+  const notes = input.notes ?? null;
   const result = await database.runAsync(
-    `INSERT INTO treatments (event_type, insulin, carbs, created_at) VALUES (?, ?, ?, ?)`,
-    [input.eventType, input.insulin, input.carbs, input.createdAt],
+    `INSERT INTO treatments (event_type, insulin, carbs, created_at, notes) VALUES (?, ?, ?, ?, ?)`,
+    [input.eventType, input.insulin, input.carbs, input.createdAt, notes],
   );
 
   return {
@@ -95,7 +114,21 @@ export async function insertTreatment(input: NewTreatment): Promise<Treatment> {
     insulin: input.insulin,
     carbs: input.carbs,
     createdAt: input.createdAt,
+    notes,
   };
+}
+
+export async function updateTreatment(id: number, edits: TreatmentEdits): Promise<void> {
+  const database = getDb();
+  await database.runAsync(
+    `UPDATE treatments SET event_type = ?, insulin = ?, carbs = ?, notes = ? WHERE id = ?`,
+    [edits.eventType, edits.insulin, edits.carbs, edits.notes, id],
+  );
+}
+
+export async function deleteTreatment(id: number): Promise<void> {
+  const database = getDb();
+  await database.runAsync(`DELETE FROM treatments WHERE id = ?`, [id]);
 }
 
 export async function getRecentTreatments(count: number): Promise<Treatment[]> {

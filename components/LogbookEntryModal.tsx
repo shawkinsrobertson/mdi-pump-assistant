@@ -1,0 +1,280 @@
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { updateBasalDose } from '../lib/db/basalDoses';
+import { updateTreatment, type EventType } from '../lib/db/treatments';
+import type { LogEntry } from '../lib/logbookEntry';
+import type { LongActingInsulinType } from '../lib/mdi/basalCurve';
+import { colors, radius, spacing } from '../lib/theme';
+
+interface LogbookEntryModalProps {
+  entry: LogEntry | null; // null = hidden
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+const TREATMENT_TYPES: EventType[] = ['Meal Bolus', 'Correction Bolus'];
+const BASAL_TYPES: { value: LongActingInsulinType; label: string }[] = [
+  { value: 'glargine', label: 'Glargine' },
+  { value: 'detemir', label: 'Detemir' },
+  { value: 'degludec', label: 'Degludec' },
+];
+
+// Edit modal for an existing Logbook entry — covers both entry kinds
+// (bolus/correction treatment, or basal dose). "Add notes" from the spec
+// lives here as a notes field on the same edit form, rather than a
+// separate action, since the notes it describes are always attached to
+// an existing entry (see AGENTS.md).
+export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModalProps) {
+  const [eventType, setEventType] = useState<EventType>('Meal Bolus');
+  const [insulin, setInsulin] = useState('');
+  const [carbs, setCarbs] = useState('');
+  const [basalType, setBasalType] = useState<LongActingInsulinType>('glargine');
+  const [units, setUnits] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!entry) return;
+    setError(null);
+    if (entry.kind === 'treatment') {
+      setEventType(entry.treatment.eventType);
+      setInsulin(entry.treatment.insulin?.toString() ?? '');
+      setCarbs(entry.treatment.carbs?.toString() ?? '');
+      setNotes(entry.treatment.notes ?? '');
+    } else {
+      setBasalType(entry.dose.type);
+      setUnits(entry.dose.units.toString());
+      setNotes(entry.dose.notes ?? '');
+    }
+  }, [entry]);
+
+  const commit = useCallback(async () => {
+    if (!entry) return;
+    setSaving(true);
+    setError(null);
+    try {
+      if (entry.kind === 'treatment') {
+        const insulinNum = parseFloat(insulin);
+        const carbsNum = parseFloat(carbs);
+        await updateTreatment(entry.treatment.id, {
+          eventType,
+          insulin: Number.isFinite(insulinNum) ? insulinNum : null,
+          carbs: Number.isFinite(carbsNum) ? carbsNum : null,
+          notes: notes.trim() === '' ? null : notes.trim(),
+        });
+      } else {
+        const unitsNum = parseFloat(units) || 0;
+        await updateBasalDose(entry.dose.id, {
+          type: basalType,
+          units: unitsNum,
+          notes: notes.trim() === '' ? null : notes.trim(),
+        });
+      }
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [entry, eventType, insulin, carbs, basalType, units, notes, onSaved, onClose]);
+
+  const handleSave = useCallback(() => {
+    Alert.alert('Save changes?', 'This will update the logged entry.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Save', onPress: commit },
+    ]);
+  }, [commit]);
+
+  if (!entry) return null;
+
+  return (
+    <Modal visible={entry !== null} animationType="slide" onRequestClose={onClose}>
+      <View style={styles.container}>
+        <View style={styles.headerRow}>
+          <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
+            <Ionicons name="chevron-back" size={26} color={colors.text.primary} />
+          </Pressable>
+          <Text style={styles.title}>Edit Entry</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        {entry.kind === 'treatment' ? (
+          <>
+            <View style={styles.toggleRow}>
+              {TREATMENT_TYPES.map((t) => (
+                <Pressable
+                  key={t}
+                  style={[styles.toggleButton, eventType === t && styles.toggleButtonActive]}
+                  onPress={() => setEventType(t)}
+                >
+                  <Text style={[styles.toggleText, eventType === t && styles.toggleTextActive]}>
+                    {t === 'Meal Bolus' ? 'Meal' : 'Correction'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Field label="Insulin (U)" value={insulin} onChangeText={setInsulin} />
+            <Field label="Carbs (g)" value={carbs} onChangeText={setCarbs} />
+          </>
+        ) : (
+          <>
+            <View style={styles.toggleRow}>
+              {BASAL_TYPES.map((t) => (
+                <Pressable
+                  key={t.value}
+                  style={[styles.toggleButton, basalType === t.value && styles.toggleButtonActive]}
+                  onPress={() => setBasalType(t.value)}
+                >
+                  <Text style={[styles.toggleText, basalType === t.value && styles.toggleTextActive]}>{t.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Field label="Units" value={units} onChangeText={setUnits} />
+          </>
+        )}
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Notes</Text>
+          <TextInput
+            style={[styles.input, styles.notesInput]}
+            value={notes}
+            onChangeText={setNotes}
+            multiline
+            placeholder="Add a note…"
+            placeholderTextColor={colors.text.placeholder}
+          />
+        </View>
+
+        {error && <Text style={styles.error}>{error}</Text>}
+
+        <Pressable style={[styles.button, saving && styles.buttonDisabled]} disabled={saving} onPress={handleSave}>
+          {saving ? <ActivityIndicator color={colors.text.inverse} /> : <Text style={styles.buttonText}>Save</Text>}
+        </Pressable>
+        <Pressable style={[styles.button, styles.buttonSecondary]} onPress={onClose}>
+          <Text style={styles.buttonText}>Back</Text>
+        </Pressable>
+      </View>
+    </Modal>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChangeText,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        style={styles.input}
+        value={value}
+        onChangeText={onChangeText}
+        keyboardType="decimal-pad"
+        placeholder="0"
+        placeholderTextColor={colors.text.placeholder}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.bg.primary,
+    padding: spacing.xl,
+    paddingTop: 60,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xl,
+  },
+  headerSpacer: {
+    width: 26,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text.primary,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.base,
+  },
+  toggleButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    borderRadius: radius.md,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: colors.bg.primary,
+  },
+  toggleButtonActive: {
+    borderColor: colors.action.primaryBg,
+    backgroundColor: colors.action.primaryBg,
+  },
+  toggleText: {
+    color: colors.text.secondary,
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  toggleTextActive: {
+    color: colors.text.inverse,
+  },
+  field: {
+    marginBottom: spacing.base,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text.label,
+    marginBottom: spacing.xs,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.smMd,
+    fontSize: 16,
+    color: colors.text.primary,
+  },
+  notesInput: {
+    minHeight: 90,
+    textAlignVertical: 'top',
+  },
+  error: {
+    color: colors.status.danger,
+    fontSize: 14,
+    marginBottom: spacing.md,
+  },
+  button: {
+    backgroundColor: colors.action.primaryBg,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.xs,
+  },
+  buttonSecondary: {
+    backgroundColor: colors.action.secondaryBg,
+    marginTop: spacing.md,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: colors.text.inverse,
+    fontWeight: '600',
+  },
+});
