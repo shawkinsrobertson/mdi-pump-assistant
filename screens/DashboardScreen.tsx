@@ -114,7 +114,6 @@ export function DashboardScreen() {
                 <Text style={styles.arrow}>{arrowForDirection(current.direction)}</Text>
                 <Text style={styles.unit}>mg/dL</Text>
               </View>
-              
             </View>
             <View style={styles.chartWrap}>
               <View style={styles.statusRow}>
