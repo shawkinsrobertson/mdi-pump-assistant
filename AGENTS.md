@@ -437,20 +437,20 @@ ScrollView's `contentContainerStyle`) and bumped the floating tab bar's
 icon size (`iconSize.base` 26px → `iconSize.lg` 32px, plus more pill
 padding) per the "icons read as tiny" feedback.
 
-Still not done on Dashboard: the collapsible Bolus Wizard card shown
-inline in the reference mockup (today it's still the separate
-`QuickLogModal`, which works fine functionally — converting it to an
-inline expandable card is a real interaction-model change, not just a
-style tweak, so it's being held for an explicit decision rather than
-built blind). `AppTabBar` and the rest of Dashboard's *sibling* screens
-(Logbook, Trends) still use the static `colors` export, not
-`useTheme()` — same deferred-migration note as Phase E.
+The Bolus Wizard is now also a collapsible inline card
+(`components/BolusWizardCard.tsx`, title + chevron, collapsed by
+default) matching the reference mockup, replacing the old
+`QuickLogModal` (deleted — same IOB-aware suggestion logic, just
+re-hosted inline and made theme-aware instead of a separate modal).
+`AppTabBar` and the rest of Dashboard's *sibling* screens (Logbook,
+Trends) still use the static `colors` export, not `useTheme()` — same
+deferred-migration note as Phase E.
 
 Not done yet: the exponential IOB model (current model is an explicitly-
 flagged linear placeholder — separate from the vendored oref0 IOB calc,
 which is used only for the prediction engine), Trends' Patterns/
-Insights (an LLM feature) and clinician export, the collapsible Bolus
-Wizard card (see above), the real (v1+) Nightscout import feature, and
+Insights (an LLM feature) and clinician export, the real (v1+)
+Nightscout import feature, and
 a live-timer notification for Activity logging (a simpler start/
 duration-only version is what's built now). The BLE meter's RACP "Sync History" still
 hits a `GATT_INTERNAL_ERROR` that hasn't been resolved. Migrating
