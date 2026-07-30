@@ -10,7 +10,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.seamusrobertson.mdipumpassistant",
       "infoPlist": {
-        "UIBackgroundModes": ["fetch"]
+        "UIBackgroundModes": [
+          "fetch",
+          "fetch"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
