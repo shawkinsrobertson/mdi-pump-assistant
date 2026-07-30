@@ -7,16 +7,53 @@ import { Card } from '../components/ui/Card';
 import { getLatestInsight, type InsightRecord } from '../lib/db/insights';
 import { getReadingsSince } from '../lib/db/glucoseReadings';
 import type { GlucoseReading } from '../lib/glucose';
+import type { InsightPayload } from '../lib/insights/insightPayload';
 import { parseInsightContent } from '../lib/insights/parseInsightContent';
 import { useSettings } from '../lib/settings';
 import { runInsightGeneration } from '../lib/tasks/insightTask';
-import { colors, radius, spacing } from '../lib/theme';
+import { colors, radius, spacing, type ThemeColors } from '../lib/theme';
 import { computeAgpBuckets, computeAgpSummary } from '../lib/trends/agp';
 import { computeTimeInRange } from '../lib/trends/timeInRange';
 import { TRENDS_WINDOWS, trendsWindowLabel, windowStartMs, type TrendsWindow } from '../lib/trends/window';
+import { useTheme } from '../lib/ThemeContext';
 
-function formatInsightDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+// This one card uses useTheme() (light/dark/system, per the Display
+// setting) rather than the static `colors` export the rest of this
+// screen still uses — see lib/theme.ts's own header comment on Trends
+// not being fully migrated yet. An AI-generated insight benefits from
+// reading as a slightly distinct kind of content, so it gets its own
+// style factory below instead of sharing the module-level `styles`,
+// but it still follows the same light/dark preference as everything
+// else in the app, not a hardcoded palette.
+function formatInsightDateRange(payload: InsightPayload): string {
+  const end = new Date(payload.generatedAt);
+  const start = new Date(end.getTime() - payload.windowDays * 24 * 60 * 60 * 1000);
+  const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+function withAlpha(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Colors the "N% in range" badge the same way the Time in Range card
+// above already implicitly ranks it (>=70% target per the international
+// consensus this app's default range is built on — see lib/settings.ts).
+function tirBadgeStyle(inRangePct: number, themeColors: ThemeColors): { bg: string; text: string } {
+  const color =
+    inRangePct >= 70 ? themeColors.status.success : inRangePct >= 50 ? themeColors.status.warning : themeColors.status.danger;
+  return { bg: withAlpha(color, 0.16), text: color };
+}
+
+// A rotating visual rhythm for scanning multiple patterns at a glance —
+// NOT a severity ranking. The model's own confidence text (rendered
+// separately beneath each observation) is the real signal; this doesn't
+// attempt to re-derive clinical meaning from it.
+function patternAccentColors(themeColors: ThemeColors): string[] {
+  return [themeColors.status.danger, themeColors.status.warning, themeColors.accent.info];
 }
 
 type SummaryStat = 'median' | 'mean' | 'stdDev' | 'estimatedA1c';
@@ -35,6 +72,11 @@ function formatSummaryValue(stat: SummaryStat, value: number): string {
 
 export function TrendsScreen() {
   const [settings, , settingsLoaded] = useSettings();
+  const { colors: themeColors, spacing: themeSpacing, radius: themeRadius, fontScale } = useTheme();
+  const insightStyles = useMemo(
+    () => makeInsightStyles(themeColors, themeSpacing, themeRadius, fontScale),
+    [themeColors, themeSpacing, themeRadius, fontScale],
+  );
   const [window, setWindow] = useState<TrendsWindow>(7);
   const [readings, setReadings] = useState<GlucoseReading[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +151,19 @@ export function TrendsScreen() {
     () => (latestInsight ? parseInsightContent(latestInsight.insight) : null),
     [latestInsight],
   );
+  // insights.ts's `payload` column is typed `unknown` (it's an opaque JSON
+  // blob from the DB layer's own point of view) but is always written by
+  // buildInsightPayload() — see lib/tasks/insightTask.ts — so the shape
+  // is trusted here rather than re-validated field by field.
+  const insightPayload = useMemo(
+    () => (latestInsight ? (latestInsight.payload as InsightPayload) : null),
+    [latestInsight],
+  );
+  const tirBadge = useMemo(
+    () => (insightPayload ? tirBadgeStyle(insightPayload.timeInRange.inRangePct, themeColors) : null),
+    [insightPayload, themeColors],
+  );
+  const patternAccents = useMemo(() => patternAccentColors(themeColors), [themeColors]);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -202,42 +257,67 @@ export function TrendsScreen() {
         )}
       </Card>
 
-      <Card style={styles.card}>
-        <Text style={styles.cardTitle}>Patterns and Insights</Text>
-
-        {(!insightLoaded || !settingsLoaded) && <Text style={styles.message}>Loading…</Text>}
-
-        {insightLoaded && settingsLoaded && latestInsight === null && (
-          <Text style={styles.message}>
-            No insights generated yet. {settings.insightsWebhookUrl ? '' : 'Add a webhook URL in Settings > Integrations, then '}
-            tap below to generate one now.
-          </Text>
+      <Card style={insightStyles.insightsCard}>
+        {(!insightLoaded || !settingsLoaded) && (
+          <>
+            <Text style={insightStyles.insightsCardTitle}>Patterns and Insights</Text>
+            <Text style={insightStyles.insightsMessage}>Loading…</Text>
+          </>
         )}
 
-        {insightLoaded && latestInsight !== null && parsedInsight && (
+        {insightLoaded && settingsLoaded && latestInsight === null && (
           <>
-            <Text style={styles.insightDate}>Generated {formatInsightDate(latestInsight.generatedAt)}</Text>
+            <Text style={insightStyles.insightsCardTitle}>Patterns and Insights</Text>
+            <Text style={insightStyles.insightsMessage}>
+              No insights generated yet.{' '}
+              {settings.insightsWebhookUrl ? '' : 'Add a webhook URL in Settings > Integrations, then '}
+              tap below to generate one now.
+            </Text>
+          </>
+        )}
 
+        {insightLoaded && latestInsight !== null && parsedInsight && insightPayload && tirBadge && (
+          <>
             {parsedInsight.structured ? (
               <>
-                <Text style={styles.insightText}>{parsedInsight.structured.summary}</Text>
+                <View style={insightStyles.insightsTopRow}>
+                  <Text style={insightStyles.insightsDateRange}>{formatInsightDateRange(insightPayload)}</Text>
+                  <View style={[insightStyles.insightsBadge, { backgroundColor: tirBadge.bg }]}>
+                    <Text style={[insightStyles.insightsBadgeText, { color: tirBadge.text }]}>
+                      {insightPayload.timeInRange.inRangePct}% in range
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={insightStyles.insightsSummary}>{parsedInsight.structured.summary}</Text>
 
                 {parsedInsight.structured.patterns.length > 0 && (
                   <>
-                    <Text style={styles.insightSectionTitle}>Patterns</Text>
+                    <View style={insightStyles.insightsDivider} />
+                    <Text style={insightStyles.insightsSectionTitle}>Patterns noticed</Text>
                     {parsedInsight.structured.patterns.map((p, i) => (
-                      <Text key={i} style={styles.insightBullet}>
-                        • {p}
-                      </Text>
+                      <View key={i} style={insightStyles.patternRow}>
+                        <View
+                          style={[
+                            insightStyles.patternMarker,
+                            { borderColor: patternAccents[i % patternAccents.length] },
+                          ]}
+                        />
+                        <View style={insightStyles.patternTextCol}>
+                          <Text style={insightStyles.patternObservation}>{p.observation}</Text>
+                          {p.confidence && <Text style={insightStyles.patternConfidence}>{p.confidence}</Text>}
+                        </View>
+                      </View>
                     ))}
                   </>
                 )}
 
                 {parsedInsight.structured.considerations.length > 0 && (
                   <>
-                    <Text style={styles.insightSectionTitle}>Worth considering</Text>
+                    <View style={insightStyles.insightsDivider} />
+                    <Text style={insightStyles.insightsSectionTitle}>Worth considering</Text>
                     {parsedInsight.structured.considerations.map((c, i) => (
-                      <Text key={i} style={styles.insightBullet}>
+                      <Text key={i} style={insightStyles.insightsBulletDark}>
                         • {c}
                       </Text>
                     ))}
@@ -246,32 +326,41 @@ export function TrendsScreen() {
 
                 {parsedInsight.structured.doctorDiscussionTopics.length > 0 && (
                   <>
-                    <Text style={styles.insightSectionTitle}>Discuss with your doctor</Text>
+                    <View style={insightStyles.insightsDivider} />
+                    <View style={insightStyles.insightsSectionTitleRow}>
+                      <Ionicons name="checkbox-outline" size={15} color={themeColors.text.secondary} />
+                      <Text style={insightStyles.insightsSectionTitleInline}>Bring to your next visit</Text>
+                    </View>
                     {parsedInsight.structured.doctorDiscussionTopics.map((t, i) => (
-                      <Text key={i} style={styles.insightBullet}>
+                      <Text key={i} style={insightStyles.insightsBulletDark}>
                         • {t}
                       </Text>
                     ))}
                   </>
                 )}
+
+                <View style={insightStyles.insightsDivider} />
+                <Text style={insightStyles.insightsFooter}>
+                  Not medical advice. Always talk to your care team about changes to your treatment.
+                </Text>
               </>
             ) : (
-              <Text style={styles.insightText}>{parsedInsight.fallbackText}</Text>
+              <Text style={insightStyles.insightsSummary}>{parsedInsight.fallbackText}</Text>
             )}
           </>
         )}
 
-        {generateError && <Text style={styles.error}>{generateError}</Text>}
+        {generateError && <Text style={insightStyles.insightsError}>{generateError}</Text>}
 
         <Pressable
-          style={[styles.generateButton, generating && styles.generateButtonDisabled]}
+          style={[insightStyles.insightsGenerateButton, generating && insightStyles.generateButtonDisabled]}
           disabled={generating}
           onPress={handleGenerateInsights}
         >
           {generating ? (
-            <ActivityIndicator color={colors.text.inverse} />
+            <ActivityIndicator color={themeColors.text.inverse} />
           ) : (
-            <Text style={styles.generateButtonText}>Generate Insights Now</Text>
+            <Text style={insightStyles.insightsGenerateButtonText}>Generate Insights Now</Text>
           )}
         </Pressable>
       </Card>
@@ -392,45 +481,135 @@ const styles = StyleSheet.create({
   toggleTextActive: {
     color: colors.text.inverse,
   },
-  insightDate: {
-    fontSize: 12,
-    color: colors.text.tertiary,
-    marginBottom: 6,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  insightText: {
-    fontSize: 15,
-    color: colors.text.primary,
-    lineHeight: 21,
-    marginBottom: 16,
-  },
-  insightSectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.text.secondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  insightBullet: {
-    fontSize: 14,
-    color: colors.text.primary,
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  generateButton: {
-    backgroundColor: colors.action.primaryBg,
-    borderRadius: radius.md,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  generateButtonDisabled: {
-    opacity: 0.6,
-  },
-  generateButtonText: {
-    color: colors.text.inverse,
-    fontWeight: '600',
-    fontSize: 14,
-  },
 });
+
+// The Insights card's own style factory — computed per-render from
+// useTheme() (see the component body) rather than built once at module
+// scope like `styles` above, since it needs to actually change with the
+// Display setting's light/dark/system preference.
+function makeInsightStyles(themeColors: ThemeColors, themeSpacing: typeof spacing, themeRadius: typeof radius, fontScale: number) {
+  return StyleSheet.create({
+    insightsCard: {
+      padding: themeSpacing.xl,
+    },
+    insightsCardTitle: {
+      fontSize: 18 * fontScale,
+      fontWeight: '700',
+      marginBottom: 12,
+      color: themeColors.text.primary,
+    },
+    insightsMessage: {
+      fontSize: 14 * fontScale,
+      color: themeColors.text.tertiary,
+    },
+    insightsError: {
+      fontSize: 14 * fontScale,
+      color: themeColors.status.danger,
+      marginBottom: themeSpacing.sm,
+    },
+    insightsTopRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: themeSpacing.sm,
+    },
+    insightsDateRange: {
+      fontSize: 13 * fontScale,
+      color: themeColors.text.tertiary,
+      fontWeight: '600',
+    },
+    insightsBadge: {
+      borderRadius: themeRadius.full,
+      paddingHorizontal: themeSpacing.sm,
+      paddingVertical: 4,
+    },
+    insightsBadgeText: {
+      fontSize: 12 * fontScale,
+      fontWeight: '700',
+    },
+    insightsSummary: {
+      fontSize: 15 * fontScale,
+      color: themeColors.text.primary,
+      lineHeight: 21,
+    },
+    insightsDivider: {
+      height: 1,
+      backgroundColor: themeColors.border.subtle,
+      marginVertical: themeSpacing.md,
+    },
+    insightsSectionTitle: {
+      fontSize: 13 * fontScale,
+      fontWeight: '700',
+      color: themeColors.text.tertiary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginBottom: themeSpacing.sm,
+    },
+    insightsSectionTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginBottom: themeSpacing.sm,
+    },
+    insightsSectionTitleInline: {
+      fontSize: 13 * fontScale,
+      fontWeight: '700',
+      color: themeColors.text.tertiary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    patternRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: themeSpacing.sm,
+      marginBottom: themeSpacing.md,
+    },
+    patternMarker: {
+      width: 12,
+      height: 12,
+      borderRadius: 3,
+      borderWidth: 2,
+      marginTop: 3,
+    },
+    patternTextCol: {
+      flex: 1,
+    },
+    patternObservation: {
+      fontSize: 14 * fontScale,
+      fontWeight: '600',
+      color: themeColors.text.primary,
+      lineHeight: 19,
+    },
+    patternConfidence: {
+      fontSize: 12 * fontScale,
+      color: themeColors.text.tertiary,
+      marginTop: 2,
+    },
+    insightsBulletDark: {
+      fontSize: 14 * fontScale,
+      color: themeColors.text.primary,
+      lineHeight: 20,
+      marginBottom: themeSpacing.sm,
+    },
+    insightsFooter: {
+      fontSize: 11 * fontScale,
+      color: themeColors.text.quaternary,
+      lineHeight: 15,
+    },
+    insightsGenerateButton: {
+      backgroundColor: themeColors.action.primaryBg,
+      borderRadius: themeRadius.md,
+      paddingVertical: 12,
+      alignItems: 'center',
+      marginTop: themeSpacing.base,
+    },
+    generateButtonDisabled: {
+      opacity: 0.6,
+    },
+    insightsGenerateButtonText: {
+      color: themeColors.text.inverse,
+      fontWeight: '600',
+      fontSize: 14 * fontScale,
+    },
+  });
+}

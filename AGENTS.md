@@ -606,3 +606,25 @@ confidence folded in) instead of one text blob — while still falling
 back gracefully to plain text for any other/unrecognized webhook
 response shape, since the workflow behind the webhook isn't something
 this app controls or can assume a fixed contract with.
+
+**Insights card visual redesign** (same session, after seeing the real
+webhook output rendered): reworked the card to match a reference design
+the user liked — a date-range + colored "N% in range" badge header, the
+summary as its own paragraph, then divider-separated sections ("Patterns
+noticed" with a small colored marker + bold observation + muted
+confidence subtitle per pattern, "Worth considering", and "Bring to your
+next visit" with a checkbox-outline icon), plus a "Not medical advice"
+footer disclaimer. `parseInsightContent.ts`'s `patterns` field changed
+from pre-flattened strings to `{observation, confidence}` objects so the
+UI could render those two lines separately instead of one parenthetical.
+First pass hardcoded this card to a dark palette (misreading a
+dark-browser screenshot as an intentional design choice); corrected per
+explicit feedback to instead pull from `useTheme()` like the rest of the
+theme-aware parts of the app, via its own `makeInsightStyles()` factory
+computed per-render — this is the **first part of TrendsScreen to use
+useTheme()** rather than the static `colors` export the rest of the
+screen still uses (see the "not yet migrated" note earlier in this doc);
+the TIR/AGP cards above it are unaffected. The badge/pattern-marker
+colors resolve against whichever palette is active by pulling
+`themeColors.status.*`/`.accent.info` through a small `withAlpha()`
+helper rather than hardcoding separate light/dark hex pairs.

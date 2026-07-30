@@ -8,9 +8,17 @@
 // rather than assuming one fixed shape, and only falls back to plain
 // text when nothing recognizable is found — never nothing at all.
 
+// Kept as separate fields (rather than folded into one string) since the
+// UI renders them as two visually distinct lines — a bold observation
+// with a muted confidence subtitle beneath it.
+export interface InsightPattern {
+  observation: string;
+  confidence: string | null;
+}
+
 export interface StructuredInsight {
   summary: string;
-  patterns: string[];
+  patterns: InsightPattern[];
   considerations: string[];
   doctorDiscussionTopics: string[];
 }
@@ -35,24 +43,27 @@ function tryParseJson(text: string): unknown {
   }
 }
 
-// Each entry is usually a plain string, but some workflows nest
-// {observation, confidence} objects per pattern instead — surface the
-// observation text with confidence folded in parenthetically rather than
-// silently dropping either shape.
 function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+// Each pattern entry is usually {observation, confidence}, but tolerate a
+// plain string too (confidence just goes null) rather than dropping it.
+function asPatternArray(value: unknown): InsightPattern[] {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => {
-      if (typeof item === 'string') return item;
+      if (typeof item === 'string') return { observation: item, confidence: null };
       if (item && typeof item === 'object') {
         const obj = item as Record<string, unknown>;
         if (typeof obj.observation === 'string') {
-          return typeof obj.confidence === 'string' ? `${obj.observation} (confidence: ${obj.confidence})` : obj.observation;
+          return { observation: obj.observation, confidence: typeof obj.confidence === 'string' ? obj.confidence : null };
         }
       }
       return null;
     })
-    .filter((s): s is string => s != null);
+    .filter((p): p is InsightPattern => p != null);
 }
 
 function asStructured(candidate: unknown): StructuredInsight | null {
@@ -61,7 +72,7 @@ function asStructured(candidate: unknown): StructuredInsight | null {
   if (typeof obj.summary !== 'string') return null;
   return {
     summary: obj.summary,
-    patterns: asStringArray(obj.patterns),
+    patterns: asPatternArray(obj.patterns),
     considerations: asStringArray(obj.considerations),
     doctorDiscussionTopics: asStringArray(obj.doctor_discussion_topics ?? obj.doctorDiscussionTopics),
   };
