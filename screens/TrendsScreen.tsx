@@ -258,22 +258,16 @@ export function TrendsScreen() {
       </Card>
 
       <Card style={insightStyles.insightsCard}>
-        {(!insightLoaded || !settingsLoaded) && (
-          <>
-            <Text style={insightStyles.insightsCardTitle}>Patterns and Insights</Text>
-            <Text style={insightStyles.insightsMessage}>Loading…</Text>
-          </>
-        )}
+        <Text style={insightStyles.insightsCardTitle}>Patterns and Insights</Text>
+
+        {(!insightLoaded || !settingsLoaded) && <Text style={insightStyles.insightsMessage}>Loading…</Text>}
 
         {insightLoaded && settingsLoaded && latestInsight === null && (
-          <>
-            <Text style={insightStyles.insightsCardTitle}>Patterns and Insights</Text>
-            <Text style={insightStyles.insightsMessage}>
-              No insights generated yet.{' '}
-              {settings.insightsWebhookUrl ? '' : 'Add a webhook URL in Settings > Integrations, then '}
-              tap below to generate one now.
-            </Text>
-          </>
+          <Text style={insightStyles.insightsMessage}>
+            No insights generated yet.{' '}
+            {settings.insightsWebhookUrl ? '' : 'Add a webhook URL in Settings > Integrations, then '}
+            tap below to generate one now.
+          </Text>
         )}
 
         {insightLoaded && latestInsight !== null && parsedInsight && insightPayload && tirBadge && (

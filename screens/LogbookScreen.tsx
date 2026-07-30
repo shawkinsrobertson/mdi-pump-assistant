@@ -60,7 +60,7 @@ function entryLabel(entry: LogEntry): string {
     case 'treatment':
       return entry.treatment.eventType;
     case 'basal':
-      return `Basal — ${entry.dose.type}`;
+      return `Basal — ${entry.dose.type === 'other' ? entry.dose.customName || 'other' : entry.dose.type}`;
     case 'activity':
       return `Activity — ${INTENSITY_LABELS[entry.activity.intensity]}`;
     case 'note':

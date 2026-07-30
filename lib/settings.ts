@@ -1,5 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
+import type { LongActingInsulinType } from './mdi/basalCurve';
+
+// A recurring daily basal dosing schedule (Settings > Account and Profile
+// > Dosing and Treatment Configuration). Drives lib/tasks/basalReminders.ts's
+// local notification scheduling; each reminder still requires a tap-to-
+// confirm in the Insulin quick action (Bolus/Basal mode) before anything
+// is actually logged — this config never writes a basal_doses row by
+// itself. See AGENTS.md for the reasoning against silent auto-logging.
+export interface BasalScheduleConfig {
+  type: LongActingInsulinType;
+  // Only meaningful when type === 'other'.
+  customName: string | null;
+  customDurationHours: number | null;
+  units: number | null;
+  times: string[]; // "HH:MM", 24h — one entry per daily dose
+}
 
 // Clinical values ship null/required rather than a "typical" default
 // (AGENTS.md: "never invent clinical defaults" — the user must enter
@@ -31,6 +47,9 @@ export interface Settings {
   // to — see lib/tasks/insightTask.ts. No default: without one configured,
   // insight generation is simply skipped rather than posting anywhere.
   insightsWebhookUrl: string | null;
+  // No default: nothing is scheduled/reminded until the person sets one
+  // up themselves.
+  basalSchedule: BasalScheduleConfig | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -43,6 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rangeLow: 70,
   rangeHigh: 180,
   insightsWebhookUrl: null,
+  basalSchedule: null,
 };
 
 const STORAGE_KEY = 'app-settings';

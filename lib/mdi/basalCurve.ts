@@ -12,7 +12,13 @@
 // starting points a settings screen can override, not values to trust
 // blindly for real dosing decisions.
 
-export type LongActingInsulinType = 'glargine' | 'detemir' | 'degludec';
+// 'other' covers any long-acting insulin without a published profile
+// here (e.g. an uncommon brand, or a biosimilar with a different quoted
+// duration) — its actual duration always comes from the dose's own
+// `customDurationHours` (set when logging/scheduling it), never from
+// DEFAULT_BASAL_CURVE_PROFILES.other, which exists only as a fallback if
+// that's somehow missing.
+export type LongActingInsulinType = 'glargine' | 'detemir' | 'degludec' | 'other';
 
 export interface BasalCurveProfile {
   // Total hours the dose remains active. Degludec is genuinely ~42h
@@ -29,12 +35,20 @@ export const DEFAULT_BASAL_CURVE_PROFILES: Record<LongActingInsulinType, BasalCu
   glargine: { durationHours: 24, peakFraction: null },
   detemir: { durationHours: 20, peakFraction: 0.3 },
   degludec: { durationHours: 42, peakFraction: null },
+  // Flat-topped (no assumed peak) rather than guessing at a peaked shape
+  // for an insulin this app has no published profile for — the neutral
+  // default among the three known shapes.
+  other: { durationHours: 24, peakFraction: null },
 };
 
 export interface BasalDose {
   type: LongActingInsulinType;
   units: number;
   injectedAt: string; // ISO 8601
+  // Only meaningful when type === 'other' — the duration the person
+  // entered for this specific dose. Ignored for the three known types,
+  // which always use their own published duration above.
+  customDurationHours?: number | null;
 }
 
 // Trapezoidal activity weight: ramps up over the first/last 10% of
@@ -73,8 +87,16 @@ function activityWeight(elapsedHours: number, profile: BasalCurveProfile): numbe
 // input in place of a pump's adjustable rate.
 export function basalRateFromDose(dose: BasalDose, atTime: Date, profileOverride?: Partial<BasalCurveProfile>): number {
   const base = DEFAULT_BASAL_CURVE_PROFILES[dose.type];
+  // A per-dose customDurationHours (type === 'other') takes priority over
+  // profileOverride — the latter is a global settings-driven override
+  // mechanism (unused today), while this is per-dose data the person
+  // entered when logging/scheduling that specific insulin.
+  const durationHours =
+    dose.type === 'other' && dose.customDurationHours != null
+      ? dose.customDurationHours
+      : profileOverride?.durationHours ?? base.durationHours;
   const profile: BasalCurveProfile = {
-    durationHours: profileOverride?.durationHours ?? base.durationHours,
+    durationHours,
     peakFraction: profileOverride?.peakFraction !== undefined ? profileOverride.peakFraction : base.peakFraction,
   };
   const elapsedHours = (atTime.getTime() - new Date(dose.injectedAt).getTime()) / (1000 * 60 * 60);

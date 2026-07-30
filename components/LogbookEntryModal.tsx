@@ -20,6 +20,7 @@ const BASAL_TYPES: { value: LongActingInsulinType; label: string }[] = [
   { value: 'glargine', label: 'Glargine' },
   { value: 'detemir', label: 'Detemir' },
   { value: 'degludec', label: 'Degludec' },
+  { value: 'other', label: 'Other' },
 ];
 const INTENSITIES: { value: ActivityIntensity; label: string }[] = [
   { value: 'low', label: 'Low' },
@@ -37,6 +38,8 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
   const [insulin, setInsulin] = useState('');
   const [carbs, setCarbs] = useState('');
   const [basalType, setBasalType] = useState<LongActingInsulinType>('glargine');
+  const [customName, setCustomName] = useState('');
+  const [customDurationHours, setCustomDurationHours] = useState('');
   const [units, setUnits] = useState('');
   const [intensity, setIntensity] = useState<ActivityIntensity>('low');
   const [duration, setDuration] = useState('');
@@ -55,6 +58,8 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
       setNotes(entry.treatment.notes ?? '');
     } else if (entry.kind === 'basal') {
       setBasalType(entry.dose.type);
+      setCustomName(entry.dose.customName ?? '');
+      setCustomDurationHours(entry.dose.customDurationHours?.toString() ?? '');
       setUnits(entry.dose.units.toString());
       setNotes(entry.dose.notes ?? '');
     } else if (entry.kind === 'activity') {
@@ -81,10 +86,13 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
         });
       } else if (entry.kind === 'basal') {
         const unitsNum = parseFloat(units) || 0;
+        const durationNum = parseFloat(customDurationHours);
         await updateBasalDose(entry.dose.id, {
           type: basalType,
           units: unitsNum,
           notes: notes.trim() === '' ? null : notes.trim(),
+          customName: basalType === 'other' && customName.trim() !== '' ? customName.trim() : null,
+          customDurationHours: basalType === 'other' && Number.isFinite(durationNum) ? durationNum : null,
         });
       } else if (entry.kind === 'activity') {
         const durationNum = parseFloat(duration);
@@ -107,7 +115,22 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
     } finally {
       setSaving(false);
     }
-  }, [entry, eventType, insulin, carbs, basalType, units, intensity, duration, noteText, notes, onSaved, onClose]);
+  }, [
+    entry,
+    eventType,
+    insulin,
+    carbs,
+    basalType,
+    customName,
+    customDurationHours,
+    units,
+    intensity,
+    duration,
+    noteText,
+    notes,
+    onSaved,
+    onClose,
+  ]);
 
   const handleSave = useCallback(() => {
     Alert.alert('Save changes?', 'This will update the logged entry.', [
@@ -162,6 +185,21 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
                 </Pressable>
               ))}
             </View>
+            {basalType === 'other' && (
+              <>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={customName}
+                    onChangeText={setCustomName}
+                    placeholder="e.g. Toujeo"
+                    placeholderTextColor={colors.text.placeholder}
+                  />
+                </View>
+                <Field label="Duration (hours)" value={customDurationHours} onChangeText={setCustomDurationHours} />
+              </>
+            )}
             <Field label="Units" value={units} onChangeText={setUnits} />
           </>
         )}

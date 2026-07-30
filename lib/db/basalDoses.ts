@@ -14,6 +14,9 @@ export interface BasalDoseRecord {
   units: number;
   injectedAt: string; // ISO 8601
   notes: string | null;
+  // Only meaningful when type === 'other' — see lib/mdi/basalCurve.ts.
+  customName: string | null;
+  customDurationHours: number | null;
 }
 
 export interface NewBasalDose {
@@ -21,12 +24,16 @@ export interface NewBasalDose {
   units: number;
   injectedAt: string; // ISO 8601
   notes?: string | null;
+  customName?: string | null;
+  customDurationHours?: number | null;
 }
 
 export interface BasalDoseEdits {
   type: LongActingInsulinType;
   units: number;
   notes: string | null;
+  customName: string | null;
+  customDurationHours: number | null;
 }
 
 export class DuplicateBasalDoseError extends Error {}
@@ -44,12 +51,18 @@ function getDb(): SQLiteDatabase {
         injected_at TEXT NOT NULL
       );
     `);
-    // Migration for installs created before the `notes` column existed —
-    // ALTER TABLE has no IF NOT EXISTS, so guard with a try/catch instead.
-    try {
-      db.execSync(`ALTER TABLE basal_doses ADD COLUMN notes TEXT;`);
-    } catch {
-      // column already exists
+    // Migrations for columns added after initial release — ALTER TABLE has
+    // no IF NOT EXISTS, so guard each with its own try/catch instead.
+    for (const ddl of [
+      `ALTER TABLE basal_doses ADD COLUMN notes TEXT;`,
+      `ALTER TABLE basal_doses ADD COLUMN custom_name TEXT;`,
+      `ALTER TABLE basal_doses ADD COLUMN custom_duration_hours REAL;`,
+    ]) {
+      try {
+        db.execSync(ddl);
+      } catch {
+        // column already exists
+      }
     }
   }
   return db;
@@ -61,10 +74,20 @@ interface BasalDoseRow {
   units: number;
   injected_at: string;
   notes: string | null;
+  custom_name: string | null;
+  custom_duration_hours: number | null;
 }
 
 function fromRow(row: BasalDoseRow): BasalDoseRecord {
-  return { id: row.id, type: row.type, units: row.units, injectedAt: row.injected_at, notes: row.notes ?? null };
+  return {
+    id: row.id,
+    type: row.type,
+    units: row.units,
+    injectedAt: row.injected_at,
+    notes: row.notes ?? null,
+    customName: row.custom_name ?? null,
+    customDurationHours: row.custom_duration_hours ?? null,
+  };
 }
 
 // Same dedup-at-write-time approach as insertTreatment: a double-tap must
@@ -85,22 +108,30 @@ export async function insertBasalDose(input: NewBasalDose): Promise<BasalDoseRec
   }
 
   const notes = input.notes ?? null;
+  const customName = input.customName ?? null;
+  const customDurationHours = input.customDurationHours ?? null;
   const result = await database.runAsync(
-    `INSERT INTO basal_doses (type, units, injected_at, notes) VALUES (?, ?, ?, ?)`,
-    [input.type, input.units, input.injectedAt, notes],
+    `INSERT INTO basal_doses (type, units, injected_at, notes, custom_name, custom_duration_hours) VALUES (?, ?, ?, ?, ?, ?)`,
+    [input.type, input.units, input.injectedAt, notes, customName, customDurationHours],
   );
 
-  return { id: result.lastInsertRowId, type: input.type, units: input.units, injectedAt: input.injectedAt, notes };
+  return {
+    id: result.lastInsertRowId,
+    type: input.type,
+    units: input.units,
+    injectedAt: input.injectedAt,
+    notes,
+    customName,
+    customDurationHours,
+  };
 }
 
 export async function updateBasalDose(id: number, edits: BasalDoseEdits): Promise<void> {
   const database = getDb();
-  await database.runAsync(`UPDATE basal_doses SET type = ?, units = ?, notes = ? WHERE id = ?`, [
-    edits.type,
-    edits.units,
-    edits.notes,
-    id,
-  ]);
+  await database.runAsync(
+    `UPDATE basal_doses SET type = ?, units = ?, notes = ?, custom_name = ?, custom_duration_hours = ? WHERE id = ?`,
+    [edits.type, edits.units, edits.notes, edits.customName, edits.customDurationHours, id],
+  );
 }
 
 export async function deleteBasalDose(id: number): Promise<void> {

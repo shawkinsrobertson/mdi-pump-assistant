@@ -1,10 +1,9 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ActivityLogModal } from '../components/ActivityLogModal';
-import { BasalDoseModal } from '../components/BasalDoseModal';
-import { BleMeterModal } from '../components/BleMeterModal';
 import { BolusWizardCard } from '../components/BolusWizardCard';
 import { CarbsLogModal } from '../components/CarbsLogModal';
 import { CHART_RIGHT_PADDING_RATIO, GlucoseChart, type ChartMarker, type ChartPoint } from '../components/GlucoseChart';
@@ -20,6 +19,7 @@ import { getRecentTreatments } from '../lib/db/treatments';
 import { useGlucose } from '../lib/GlucoseContext';
 import { arrowForDirection, bgColor, formatDelta, formatMinutesAgo, isStale } from '../lib/glucose';
 import { usePrediction } from '../lib/oref/usePrediction';
+import { BASAL_REMINDER_DATA_TYPE } from '../lib/tasks/basalReminders';
 import { quickActionStyles } from '../lib/theme';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -38,21 +38,47 @@ const CHART_WINDOWS_HOURS = [3, 6, 12, 24] as const;
 const PREDICTION_HORIZON_POINTS = 12; // 12 * 5min = 60 minutes past predBGs[0]
 
 export function DashboardScreen() {
-  const { current, xdripStatus, xdripError, reportBleLiveReading, reportBleHistorySync } = useGlucose();
-  const { colors, spacing, radius, iconSize, fontScale, display } = useTheme();
-  const styles = useMemo(() => makeStyles(colors, spacing, radius, fontScale), [colors, spacing, radius, fontScale]);
+  const { current, xdripStatus, xdripError } = useGlucose();
+  const { colors, spacing, iconSize, fontScale, display } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, spacing, fontScale), [colors, spacing, fontScale]);
 
-  const [bleModalVisible, setBleModalVisible] = useState(false);
-  const [basalDoseVisible, setBasalDoseVisible] = useState(false);
   const [predictionVisible, setPredictionVisible] = useState(false);
   const [carbsVisible, setCarbsVisible] = useState(false);
   const [insulinVisible, setInsulinVisible] = useState(false);
+  const [insulinInitialMode, setInsulinInitialMode] = useState<'bolus' | 'basal'>('bolus');
   const [activityVisible, setActivityVisible] = useState(false);
   const [notesVisible, setNotesVisible] = useState(false);
   const [markers, setMarkers] = useState<ChartMarker[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
   const [windowHours, setWindowHours] = useState<(typeof CHART_WINDOWS_HOURS)[number]>(3);
   const [chartHistory, setChartHistory] = useState<ChartPoint[]>([]);
+
+  // A basal reminder notification (see lib/tasks/basalReminders.ts) opens
+  // this same Insulin modal straight into Basal mode instead of a
+  // separate screen — tapping it never logs anything by itself, the
+  // person still reviews and confirms here like any other entry.
+  const openBasalFromReminder = useCallback(() => {
+    setInsulinInitialMode('basal');
+    setInsulinVisible(true);
+  }, []);
+
+  useEffect(() => {
+    const isBasalReminder = (data: unknown) =>
+      !!data && typeof data === 'object' && (data as Record<string, unknown>).type === BASAL_REMINDER_DATA_TYPE;
+
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response && isBasalReminder(response.notification.request.content.data)) {
+        openBasalFromReminder();
+      }
+    });
+
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      if (isBasalReminder(response.notification.request.content.data)) {
+        openBasalFromReminder();
+      }
+    });
+    return () => subscription.remove();
+  }, [openBasalFromReminder]);
 
   const prediction = usePrediction(refreshToken);
 
@@ -249,30 +275,17 @@ export function DashboardScreen() {
 
       <BolusWizardCard currentBG={current?.sgv ?? null} onLogged={refreshAfterLog} />
 
-      <View style={styles.actionsRow}>
-        <Pressable style={styles.actionButton} onPress={() => setBleModalVisible(true)}>
-          <Text style={styles.actionButtonText}>Connect meter</Text>
-        </Pressable>
-        <Pressable style={styles.actionButton} onPress={() => setBasalDoseVisible(true)}>
-          <Text style={styles.actionButtonText}>Log Basal Dose</Text>
-        </Pressable>
-      </View>
-      <View style={styles.actionsRow}>
-        <Pressable style={styles.actionButton} onPress={() => setPredictionVisible(true)}>
-          <Text style={styles.actionButtonText}>Prediction</Text>
-        </Pressable>
-      </View>
-
-      <BleMeterModal
-        visible={bleModalVisible}
-        onClose={() => setBleModalVisible(false)}
-        onLiveReading={reportBleLiveReading}
-        onHistorySync={reportBleHistorySync}
-      />
-      <BasalDoseModal visible={basalDoseVisible} onClose={() => setBasalDoseVisible(false)} />
       <PredictionModal visible={predictionVisible} onClose={() => setPredictionVisible(false)} />
       <CarbsLogModal visible={carbsVisible} onClose={() => setCarbsVisible(false)} onLogged={refreshAfterLog} />
-      <InsulinLogModal visible={insulinVisible} onClose={() => setInsulinVisible(false)} onLogged={refreshAfterLog} />
+      <InsulinLogModal
+        visible={insulinVisible}
+        onClose={() => {
+          setInsulinVisible(false);
+          setInsulinInitialMode('bolus');
+        }}
+        onLogged={refreshAfterLog}
+        initialMode={insulinInitialMode}
+      />
       <ActivityLogModal visible={activityVisible} onClose={() => setActivityVisible(false)} onLogged={refreshAfterLog} />
       <NotesLogModal visible={notesVisible} onClose={() => setNotesVisible(false)} onLogged={refreshAfterLog} />
     </ScrollView>
@@ -303,7 +316,6 @@ function QuickActionButton({
 function makeStyles(
   colors: ReturnType<typeof useTheme>['colors'],
   spacing: ReturnType<typeof useTheme>['spacing'],
-  radius: ReturnType<typeof useTheme>['radius'],
   fontScale: number,
 ) {
   return StyleSheet.create({
@@ -486,22 +498,6 @@ function makeStyles(
       color: colors.status.danger,
       textAlign: 'center',
       marginTop: 8,
-    },
-    actionsRow: {
-      flexDirection: 'row',
-      gap: 10,
-      marginTop: 10,
-    },
-    actionButton: {
-      backgroundColor: colors.action.primaryBg,
-      borderRadius: radius.md,
-      paddingVertical: 12,
-      paddingHorizontal: 18,
-    },
-    actionButtonText: {
-      color: colors.text.inverse,
-      fontWeight: '600',
-      fontSize: 14 * fontScale,
     },
   });
 }

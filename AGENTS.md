@@ -628,3 +628,70 @@ the TIR/AGP cards above it are unaffected. The badge/pattern-marker
 colors resolve against whichever palette is active by pulling
 `themeColors.status.*`/`.accent.info` through a small `withAlpha()`
 helper rather than hardcoding separate light/dark hex pairs.
+
+**Dashboard button cleanup + basal dosing moved into Settings + a
+scheduled reminder feature** (same session): three bottom Dashboard
+buttons removed —
+  - **Connect meter**: gone from Dashboard; Logbook already had an
+    equivalent, fully-wired entry point (same `useGlucose()` callbacks,
+    plus it refetches the list on sync) — verified before removing, no
+    functionality lost.
+  - **Prediction**: gone; `PredictionCallout` near the chart opens the
+    same `PredictionModal` the button did. One accepted, minor behavior
+    change: the button was reachable even with no live CGM reading,
+    `PredictionCallout` isn't — a prediction can't compute anything
+    without glucose data anyway, so this wasn't treated as a real loss.
+  - **Log Basal Dose**: the standalone `BasalDoseModal` (fixed 3-type
+    list, no custom types, always "now", no `onLogged` refresh — a real
+    gap fixed in the process) is deleted. Basal logging now lives inside
+    the existing **Insulin** quick action (`InsulinLogModal.tsx`), which
+    gained a Bolus/Basal mode toggle. This is also the ad-hoc/deviation
+    logging path per explicit user decision (a split dose, an extra
+    correction shot, a day the schedule wasn't followed) — Basal mode is
+    always available from the Dashboard regardless of whether a schedule
+    exists.
+
+  A new **recurring basal dosing schedule** lives in Settings > Account
+  and Profile > Dosing and Treatment Configuration: type (glargine/
+  detemir/degludec/**other**, with name + duration-hours fields for the
+  algorithm when "other" is picked), units, and a list of daily times.
+  Explicit design decision, clarified with the user before building:
+  **the schedule only ever reminds — it never logs a dose by itself.**
+  Every other entry path in this app requires a tap-to-confirm before
+  anything is written, and a basal schedule is exactly the kind of thing
+  that must not silently self-log: if a real dose is late, skipped, or
+  split, a silently-created record would corrupt the IOB/basal-curve
+  math predictions depend on without anyone noticing. So:
+  - `lib/tasks/basalReminders.ts` schedules/cancels local
+    `expo-notifications` daily-repeating reminders (fixed identifiers
+    `basal-reminder-0..9`, always cancel-then-reschedule the whole range
+    — simpler than tracking which IDs are currently live). Saving the
+    schedule in Settings calls this (plus `requestNotificationPermissions()`,
+    requested at the point a schedule is actually turned on rather than
+    assuming the separate glucose-alerts permission flow already ran).
+  - Tapping the reminder opens `InsulinLogModal` straight into Basal
+    mode, pre-filled from the current schedule — `DashboardScreen.tsx`
+    checks `Notifications.getLastNotificationResponseAsync()` on mount
+    (cold start) and subscribes via
+    `addNotificationResponseReceivedListener` (warm/background), both
+    routed through one `openBasalFromReminder()`. The modal always
+    re-reads live settings for the prefill rather than trusting data
+    baked into the notification payload, so an edited-since-scheduled
+    schedule can't show stale values.
+  - Confirming (either from a reminder tap or opened manually) writes
+    the `basal_doses` row with `injectedAt` = the real confirmation time
+    — never the scheduled time — which is what `basalCurve.ts`'s
+    `currentBasalRate()` needs to stay accurate.
+  - `lib/mdi/basalCurve.ts` and `lib/db/basalDoses.ts` extended for the
+    "other" type: `LongActingInsulinType` gained `'other'`; `BasalDose`
+    gained an optional `customDurationHours` that takes priority over the
+    generic (unused-in-practice) `profileOverride` mechanism for that one
+    dose, modeled as a flat trapezoid (the neutral shape among the three
+    known profiles, absent a real published curve) rather than guessing
+    at a peaked one. `basal_doses` gained `custom_name`/
+    `custom_duration_hours` columns; `LogbookEntryModal.tsx` (edit) and
+    `LogbookScreen.tsx` (list label) both updated for the new type.
+  - Time-of-day inputs are plain "HH:MM" text fields (`SettingsField`
+    with `keyboardType="default"`), matching the existing DND start/end
+    fields in Notifications settings — no new native
+    date/time-picker dependency added for this.
