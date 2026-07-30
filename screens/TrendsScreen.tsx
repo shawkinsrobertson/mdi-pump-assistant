@@ -7,27 +7,13 @@ import { Card } from '../components/ui/Card';
 import { getLatestInsight, type InsightRecord } from '../lib/db/insights';
 import { getReadingsSince } from '../lib/db/glucoseReadings';
 import type { GlucoseReading } from '../lib/glucose';
+import { parseInsightContent } from '../lib/insights/parseInsightContent';
 import { useSettings } from '../lib/settings';
 import { runInsightGeneration } from '../lib/tasks/insightTask';
 import { colors, radius, spacing } from '../lib/theme';
 import { computeAgpBuckets, computeAgpSummary } from '../lib/trends/agp';
 import { computeTimeInRange } from '../lib/trends/timeInRange';
 import { TRENDS_WINDOWS, trendsWindowLabel, windowStartMs, type TrendsWindow } from '../lib/trends/window';
-
-// The webhook's response shape isn't controlled by this app (it's
-// whatever the configured n8n workflow returns), so this renders
-// defensively — common field names first, otherwise the raw JSON rather
-// than silently showing nothing.
-function extractInsightText(insight: unknown): string {
-  if (typeof insight === 'string') return insight;
-  if (insight && typeof insight === 'object') {
-    const obj = insight as Record<string, unknown>;
-    for (const key of ['summary', 'text', 'message', 'insight']) {
-      if (typeof obj[key] === 'string') return obj[key] as string;
-    }
-  }
-  return JSON.stringify(insight);
-}
 
 function formatInsightDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -119,6 +105,10 @@ export function TrendsScreen() {
   );
   const agpBuckets = useMemo(() => (readings ? computeAgpBuckets(readings) : null), [readings]);
   const agpSummary = useMemo(() => (readings ? computeAgpSummary(readings) : null), [readings]);
+  const parsedInsight = useMemo(
+    () => (latestInsight ? parseInsightContent(latestInsight.insight) : null),
+    [latestInsight],
+  );
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -224,10 +214,50 @@ export function TrendsScreen() {
           </Text>
         )}
 
-        {insightLoaded && latestInsight !== null && (
+        {insightLoaded && latestInsight !== null && parsedInsight && (
           <>
             <Text style={styles.insightDate}>Generated {formatInsightDate(latestInsight.generatedAt)}</Text>
-            <Text style={styles.insightText}>{extractInsightText(latestInsight.insight)}</Text>
+
+            {parsedInsight.structured ? (
+              <>
+                <Text style={styles.insightText}>{parsedInsight.structured.summary}</Text>
+
+                {parsedInsight.structured.patterns.length > 0 && (
+                  <>
+                    <Text style={styles.insightSectionTitle}>Patterns</Text>
+                    {parsedInsight.structured.patterns.map((p, i) => (
+                      <Text key={i} style={styles.insightBullet}>
+                        • {p}
+                      </Text>
+                    ))}
+                  </>
+                )}
+
+                {parsedInsight.structured.considerations.length > 0 && (
+                  <>
+                    <Text style={styles.insightSectionTitle}>Worth considering</Text>
+                    {parsedInsight.structured.considerations.map((c, i) => (
+                      <Text key={i} style={styles.insightBullet}>
+                        • {c}
+                      </Text>
+                    ))}
+                  </>
+                )}
+
+                {parsedInsight.structured.doctorDiscussionTopics.length > 0 && (
+                  <>
+                    <Text style={styles.insightSectionTitle}>Discuss with your doctor</Text>
+                    {parsedInsight.structured.doctorDiscussionTopics.map((t, i) => (
+                      <Text key={i} style={styles.insightBullet}>
+                        • {t}
+                      </Text>
+                    ))}
+                  </>
+                )}
+              </>
+            ) : (
+              <Text style={styles.insightText}>{parsedInsight.fallbackText}</Text>
+            )}
           </>
         )}
 
@@ -374,6 +404,20 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     lineHeight: 21,
     marginBottom: 16,
+  },
+  insightSectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text.secondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  insightBullet: {
+    fontSize: 14,
+    color: colors.text.primary,
+    lineHeight: 20,
+    marginBottom: 8,
   },
   generateButton: {
     backgroundColor: colors.action.primaryBg,

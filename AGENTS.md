@@ -585,7 +585,24 @@ Trends screen's "Patterns and Insights" card (previously a hardcoded
     patterns over time, so irregular timing in testing is expected, not
     a bug.
   - The insight response shape is whatever the configured webhook
-    returns, not something this app defines — `extractInsightText()` in
-    `TrendsScreen.tsx` renders a `summary`/`text`/`message` field if
-    present, else falls back to the raw JSON, rather than assuming a
-    fixed schema from an external service this app doesn't control.
+    returns, not something this app defines — see the follow-up below for
+    how that's actually parsed.
+
+**Insight parsing follow-up** (same session, once the real webhook was
+live): the n8n workflow's own "parse model output" step was itself
+failing whenever the model wrapped its JSON reply in a fenced markdown
+code block (a common LLM habit), falling back to an error-wrapper shape
+— `{error: "Failed to parse model output", raw: "<fenced JSON text>"}` —
+and the Trends card was rendering that literal wrapper as a JSON blob
+instead of the actual insight sitting inside `raw`. Replaced the old
+field-name-only `extractInsightText()` with
+`lib/insights/parseInsightContent.ts` (unit tested against the real
+observed payload shape), which: strips a fenced code block and re-parses
+the JSON inside it when present; specifically unwraps that `{error, raw}`
+shape by re-parsing `raw` the same way; and renders the resulting
+`summary`/`patterns`/`considerations`/`doctor_discussion_topics` fields
+as real sections on the Trends card (bulleted, with per-pattern
+confidence folded in) instead of one text blob — while still falling
+back gracefully to plain text for any other/unrecognized webhook
+response shape, since the workflow behind the webhook isn't something
+this app controls or can assume a fixed contract with.
