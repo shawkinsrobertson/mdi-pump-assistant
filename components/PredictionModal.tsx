@@ -87,12 +87,17 @@ export function PredictionModal({ visible, onClose }: PredictionModalProps) {
                 Eventual BG: {result.eventualBG != null ? `${result.eventualBG} mg/dL` : 'unavailable'}
               </Text>
               <Text style={styles.detailRow}>IOB: {result.iob.toFixed(2)} U</Text>
-              <Text style={styles.detailRow}>COB: {result.mealCOB} g</Text>
+              <Text style={styles.detailRow}>COB: {result.cobPending ? '—' : result.mealCOB} g</Text>
               <Text style={styles.detailRow}>Current basal (from logged doses): {result.currentBasal.toFixed(2)} U/hr</Text>
-              {result.insufficientGlucoseForCOB && (
+              {result.cobPending && (
                 <Text style={styles.warning}>
-                  Not enough glucose history yet to estimate carb absorption — COB is showing as 0 until more
-                  builds up.
+                  Carbs are logged but recent CGM data can't confirm absorption yet — COB will update once more
+                  glucose readings come in.
+                </Text>
+              )}
+              {result.insufficientGlucoseForCOB && !result.cobPending && (
+                <Text style={styles.warning}>
+                  Limited glucose history so far — the COB estimate may be less reliable until more builds up.
                 </Text>
               )}
               {result.autosensInsufficientData && (
