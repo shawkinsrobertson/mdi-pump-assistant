@@ -1,8 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { DuplicateNoteEntryError, insertNoteEntry } from '../lib/db/noteEntries';
-import { colors, radius, spacing } from '../lib/theme';
+import { useTheme } from '../lib/ThemeContext';
 
 interface NotesLogModalProps {
   visible: boolean;
@@ -14,6 +14,8 @@ interface NotesLogModalProps {
 // needs a real speech-to-text native module (e.g. @react-native-voice/
 // voice), which is its own dev-client rebuild risk. See AGENTS.md.
 export function NotesLogModal({ visible, onClose, onLogged }: NotesLogModalProps) {
+  const { colors, radius, spacing } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, radius, spacing), [colors, radius, spacing]);
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,68 +95,74 @@ export function NotesLogModal({ visible, onClose, onLogged }: NotesLogModalProps
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-  },
-  sheet: {
-    backgroundColor: colors.bg.primary,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.base,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text.primary,
-  },
-  field: {
-    marginBottom: spacing.base,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.smMd,
-    fontSize: 16,
-    color: colors.text.primary,
-  },
-  textArea: {
-    minHeight: 100,
-    textAlignVertical: 'top',
-  },
-  error: {
-    color: colors.status.danger,
-    fontSize: 14,
-    marginBottom: spacing.md,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  button: {
-    flex: 1,
-    backgroundColor: colors.action.primaryBg,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-  },
-  buttonSecondary: {
-    backgroundColor: colors.action.secondaryBg,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: colors.text.inverse,
-    fontWeight: '600',
-  },
-});
+function makeStyles(
+  colors: ReturnType<typeof useTheme>['colors'],
+  radius: ReturnType<typeof useTheme>['radius'],
+  spacing: ReturnType<typeof useTheme>['spacing'],
+) {
+  return StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      justifyContent: 'center',
+    },
+    sheet: {
+      backgroundColor: colors.bg.primary,
+      borderRadius: radius.lg,
+      padding: spacing.xl,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.base,
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: colors.text.primary,
+    },
+    field: {
+      marginBottom: spacing.base,
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.smMd,
+      fontSize: 16,
+      color: colors.text.primary,
+    },
+    textArea: {
+      minHeight: 100,
+      textAlignVertical: 'top',
+    },
+    error: {
+      color: colors.status.danger,
+      fontSize: 14,
+      marginBottom: spacing.md,
+    },
+    buttonRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    button: {
+      flex: 1,
+      backgroundColor: colors.action.primaryBg,
+      borderRadius: radius.md,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+    },
+    buttonSecondary: {
+      backgroundColor: colors.action.secondaryBg,
+    },
+    buttonDisabled: {
+      opacity: 0.6,
+    },
+    buttonText: {
+      color: colors.text.inverse,
+      fontWeight: '600',
+    },
+  });
+}

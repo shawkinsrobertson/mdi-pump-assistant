@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { PredictionResult } from '../lib/oref/runPrediction';
 import { runPrediction } from '../lib/oref/runPrediction';
+import { withAlpha } from '../lib/theme';
+import { useTheme } from '../lib/ThemeContext';
 
 interface PredictionModalProps {
   visible: boolean;
@@ -12,6 +14,8 @@ interface PredictionModalProps {
 // on-demand-suggestion pattern already used by the bolus wizard in
 // BolusWizardCard, rather than a silent background alert.
 export function PredictionModal({ visible, onClose }: PredictionModalProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,7 +41,7 @@ export function PredictionModal({ visible, onClose }: PredictionModalProps) {
 
         {loading && (
           <View style={styles.centered}>
-            <ActivityIndicator size="large" color="#333" />
+            <ActivityIndicator size="large" color={colors.text.secondary} />
           </View>
         )}
 
@@ -125,121 +129,137 @@ export function PredictionModal({ visible, onClose }: PredictionModalProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  content: {
-    padding: 24,
-    paddingTop: 60,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 16,
-  },
-  centered: {
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-  message: {
-    fontSize: 14,
-    color: '#555',
-  },
-  error: {
-    fontSize: 14,
-    color: '#c00',
-  },
-  sensitivityBox: {
-    backgroundColor: '#dbeafe',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
-  },
-  sensitivityTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1e40af',
-    marginBottom: 6,
-  },
-  sensitivityDetail: {
-    fontSize: 13,
-    color: '#1e3a8a',
-  },
-  suggestionBox: {
-    backgroundColor: '#fef3c7',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
-  },
-  suggestionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#92400e',
-    marginBottom: 6,
-  },
-  suggestionDetail: {
-    fontSize: 13,
-    color: '#78350f',
-  },
-  okBox: {
-    backgroundColor: '#f0fdf4',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
-  },
-  okText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#166534',
-  },
-  detailBox: {
-    backgroundColor: '#f7f7f7',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  detailRow: {
-    fontSize: 13,
-    color: '#333',
-    marginBottom: 4,
-  },
-  warning: {
-    fontSize: 12,
-    color: '#c00',
-    marginTop: 6,
-  },
-  reasonBox: {
-    marginBottom: 16,
-  },
-  reasonLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  reasonText: {
-    fontSize: 12,
-    color: '#666',
-    lineHeight: 17,
-  },
-  button: {
-    backgroundColor: '#111',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  buttonSecondary: {
-    backgroundColor: '#888',
-    marginTop: 12,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-});
+function makeStyles(colors: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg.primary,
+    },
+    content: {
+      padding: 24,
+      paddingTop: 60,
+    },
+    title: {
+      fontSize: 20,
+      fontWeight: '700',
+      marginBottom: 16,
+      color: colors.text.primary,
+    },
+    centered: {
+      paddingVertical: 40,
+      alignItems: 'center',
+    },
+    message: {
+      fontSize: 14,
+      color: colors.text.secondary,
+    },
+    error: {
+      fontSize: 14,
+      color: colors.status.danger,
+    },
+    sensitivityBox: {
+      backgroundColor: withAlpha(colors.accent.info, 0.15),
+      borderRadius: 8,
+      padding: 16,
+      marginBottom: 16,
+    },
+    sensitivityTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      // colors.text.primary rather than colors.accent.info — verified
+      // >=12:1 against this box's own tint in both themes, vs. accent.info
+      // itself sometimes falling short against its own translucent fill
+      // (see the suggestionBox comment below for the case that actually
+      // fails). The tinted box background still carries the visual
+      // identity; this just guarantees the text stays legible.
+      color: colors.text.primary,
+      marginBottom: 6,
+    },
+    sensitivityDetail: {
+      fontSize: 13,
+      color: colors.text.secondary,
+    },
+    suggestionBox: {
+      backgroundColor: withAlpha(colors.status.warning, 0.16),
+      borderRadius: 8,
+      padding: 16,
+      marginBottom: 16,
+    },
+    suggestionTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      // colors.status.warning measured only ~2.7:1 against this box's own
+      // light-mode tint (an amber-on-amber problem, not just amber-on-white)
+      // — colors.text.primary is guaranteed legible against any of this
+      // modal's subtle tinted-box backgrounds in both themes.
+      color: colors.text.primary,
+      marginBottom: 6,
+    },
+    suggestionDetail: {
+      fontSize: 13,
+      color: colors.text.secondary,
+    },
+    okBox: {
+      backgroundColor: withAlpha(colors.status.success, 0.12),
+      borderRadius: 8,
+      padding: 16,
+      marginBottom: 16,
+    },
+    okText: {
+      fontSize: 15,
+      fontWeight: '600',
+      // Same reasoning as sensitivityTitle/suggestionTitle above —
+      // status.successStrong measured only ~3.1:1 against this box's own
+      // dark-mode tint.
+      color: colors.text.primary,
+    },
+    detailBox: {
+      backgroundColor: colors.bg.surface,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 16,
+    },
+    detailRow: {
+      fontSize: 13,
+      color: colors.text.label,
+      marginBottom: 4,
+    },
+    warning: {
+      fontSize: 12,
+      color: colors.status.danger,
+      marginTop: 6,
+    },
+    reasonBox: {
+      marginBottom: 16,
+    },
+    reasonLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.text.label,
+      marginBottom: 4,
+    },
+    reasonText: {
+      fontSize: 12,
+      color: colors.text.tertiary,
+      lineHeight: 17,
+    },
+    button: {
+      backgroundColor: colors.action.primaryBg,
+      borderRadius: 8,
+      paddingVertical: 12,
+      alignItems: 'center',
+      marginTop: 4,
+    },
+    buttonSecondary: {
+      backgroundColor: colors.action.secondaryBg,
+      marginTop: 12,
+    },
+    buttonDisabled: {
+      opacity: 0.6,
+    },
+    buttonText: {
+      color: colors.text.inverse,
+      fontWeight: '600',
+    },
+  });
+}

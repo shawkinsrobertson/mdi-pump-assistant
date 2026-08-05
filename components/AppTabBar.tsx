@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { cardShadow, colors, iconSize, radius, spacing } from '../lib/theme';
+import { cardShadow } from '../lib/theme';
+import { useTheme } from '../lib/ThemeContext';
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Dashboard: 'water',
@@ -21,6 +23,8 @@ const TAB_ICONS_OUTLINE: Record<string, keyof typeof Ionicons.glyphMap> = {
 // bar — see the revised Figma Dashboard/Logbook designs.
 export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { colors, iconSize, radius, spacing } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, radius, spacing), [colors, radius, spacing]);
 
   return (
     <View style={[styles.wrap, { bottom: insets.bottom + spacing.sm }]}>
@@ -51,23 +55,29 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  pill: {
-    flexDirection: 'row',
-    backgroundColor: colors.bg.primary,
-    borderRadius: radius.full,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    gap: spacing.xxl,
-  },
-  tab: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+function makeStyles(
+  colors: ReturnType<typeof useTheme>['colors'],
+  radius: ReturnType<typeof useTheme>['radius'],
+  spacing: ReturnType<typeof useTheme>['spacing'],
+) {
+  return StyleSheet.create({
+    wrap: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      alignItems: 'center',
+    },
+    pill: {
+      flexDirection: 'row',
+      backgroundColor: colors.bg.primary,
+      borderRadius: radius.full,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+      gap: spacing.xxl,
+    },
+    tab: {
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+  });
+}

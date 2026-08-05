@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { updateActivity, type ActivityIntensity } from '../lib/db/activities';
@@ -7,7 +7,7 @@ import { updateNoteEntry } from '../lib/db/noteEntries';
 import { updateTreatment, type EventType } from '../lib/db/treatments';
 import type { LogEntry } from '../lib/logbookEntry';
 import type { LongActingInsulinType } from '../lib/mdi/basalCurve';
-import { colors, radius, spacing } from '../lib/theme';
+import { useTheme } from '../lib/ThemeContext';
 
 interface LogbookEntryModalProps {
   entry: LogEntry | null; // null = hidden
@@ -34,6 +34,8 @@ const INTENSITIES: { value: ActivityIntensity; label: string }[] = [
 // separate action, since the notes it describes are always attached to
 // an existing entry (see AGENTS.md).
 export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModalProps) {
+  const { colors, radius, spacing } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, radius, spacing), [colors, radius, spacing]);
   const [eventType, setEventType] = useState<EventType>('Meal Bolus');
   const [insulin, setInsulin] = useState('');
   const [carbs, setCarbs] = useState('');
@@ -167,8 +169,8 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
                 </Pressable>
               ))}
             </View>
-            <Field label="Insulin (U)" value={insulin} onChangeText={setInsulin} />
-            <Field label="Carbs (g)" value={carbs} onChangeText={setCarbs} />
+            <Field label="Insulin (U)" value={insulin} onChangeText={setInsulin} styles={styles} />
+            <Field label="Carbs (g)" value={carbs} onChangeText={setCarbs} styles={styles} />
           </>
         )}
 
@@ -197,10 +199,10 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
                     placeholderTextColor={colors.text.placeholder}
                   />
                 </View>
-                <Field label="Duration (hours)" value={customDurationHours} onChangeText={setCustomDurationHours} />
+                <Field label="Duration (hours)" value={customDurationHours} onChangeText={setCustomDurationHours} styles={styles} />
               </>
             )}
-            <Field label="Units" value={units} onChangeText={setUnits} />
+            <Field label="Units" value={units} onChangeText={setUnits} styles={styles} />
           </>
         )}
 
@@ -217,7 +219,7 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
                 </Pressable>
               ))}
             </View>
-            <Field label="Duration (minutes)" value={duration} onChangeText={setDuration} />
+            <Field label="Duration (minutes)" value={duration} onChangeText={setDuration} styles={styles} />
           </>
         )}
 
@@ -266,11 +268,14 @@ function Field({
   label,
   value,
   onChangeText,
+  styles,
 }: {
   label: string;
   value: string;
   onChangeText: (text: string) => void;
+  styles: ReturnType<typeof makeStyles>;
 }) {
+  const { colors } = useTheme();
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -286,7 +291,12 @@ function Field({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(
+  colors: ReturnType<typeof useTheme>['colors'],
+  radius: ReturnType<typeof useTheme>['radius'],
+  spacing: ReturnType<typeof useTheme>['spacing'],
+) {
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bg.primary,
@@ -378,4 +388,5 @@ const styles = StyleSheet.create({
     color: colors.text.inverse,
     fontWeight: '600',
   },
-});
+  });
+}

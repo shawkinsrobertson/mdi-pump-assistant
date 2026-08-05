@@ -1,8 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { DuplicateActivityError, insertActivity, type ActivityIntensity } from '../lib/db/activities';
-import { colors, radius, spacing } from '../lib/theme';
+import { useTheme } from '../lib/ThemeContext';
 
 interface ActivityLogModalProps {
   visible: boolean;
@@ -17,6 +17,8 @@ const INTENSITIES: { value: ActivityIntensity; label: string }[] = [
 ];
 
 export function ActivityLogModal({ visible, onClose, onLogged }: ActivityLogModalProps) {
+  const { colors, radius, spacing } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, radius, spacing), [colors, radius, spacing]);
   const [intensity, setIntensity] = useState<ActivityIntensity>('low');
   const [duration, setDuration] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -111,97 +113,103 @@ export function ActivityLogModal({ visible, onClose, onLogged }: ActivityLogModa
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-  },
-  sheet: {
-    backgroundColor: colors.bg.primary,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.base,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text.primary,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-    marginBottom: spacing.base,
-  },
-  toggleButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: radius.md,
-    paddingVertical: 10,
-    alignItems: 'center',
-    backgroundColor: colors.bg.primary,
-  },
-  toggleButtonActive: {
-    borderColor: colors.action.primaryBg,
-    backgroundColor: colors.action.primaryBg,
-  },
-  toggleText: {
-    color: colors.text.secondary,
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  toggleTextActive: {
-    color: colors.text.inverse,
-  },
-  field: {
-    marginBottom: spacing.base,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text.label,
-    marginBottom: spacing.xs,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.smMd,
-    fontSize: 16,
-    color: colors.text.primary,
-  },
-  error: {
-    color: colors.status.danger,
-    fontSize: 14,
-    marginBottom: spacing.md,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  button: {
-    flex: 1,
-    backgroundColor: colors.action.primaryBg,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-  },
-  buttonSecondary: {
-    backgroundColor: colors.action.secondaryBg,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: colors.text.inverse,
-    fontWeight: '600',
-  },
-});
+function makeStyles(
+  colors: ReturnType<typeof useTheme>['colors'],
+  radius: ReturnType<typeof useTheme>['radius'],
+  spacing: ReturnType<typeof useTheme>['spacing'],
+) {
+  return StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      justifyContent: 'center',
+    },
+    sheet: {
+      backgroundColor: colors.bg.primary,
+      borderRadius: radius.lg,
+      padding: spacing.xl,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.base,
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: colors.text.primary,
+    },
+    toggleRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginTop: spacing.xs,
+      marginBottom: spacing.base,
+    },
+    toggleButton: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      borderRadius: radius.md,
+      paddingVertical: 10,
+      alignItems: 'center',
+      backgroundColor: colors.bg.primary,
+    },
+    toggleButtonActive: {
+      borderColor: colors.action.primaryBg,
+      backgroundColor: colors.action.primaryBg,
+    },
+    toggleText: {
+      color: colors.text.secondary,
+      fontWeight: '600',
+      fontSize: 14,
+    },
+    toggleTextActive: {
+      color: colors.text.inverse,
+    },
+    field: {
+      marginBottom: spacing.base,
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.text.label,
+      marginBottom: spacing.xs,
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.smMd,
+      fontSize: 16,
+      color: colors.text.primary,
+    },
+    error: {
+      color: colors.status.danger,
+      fontSize: 14,
+      marginBottom: spacing.md,
+    },
+    buttonRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    button: {
+      flex: 1,
+      backgroundColor: colors.action.primaryBg,
+      borderRadius: radius.md,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+    },
+    buttonSecondary: {
+      backgroundColor: colors.action.secondaryBg,
+    },
+    buttonDisabled: {
+      opacity: 0.6,
+    },
+    buttonText: {
+      color: colors.text.inverse,
+      fontWeight: '600',
+    },
+  });
+}

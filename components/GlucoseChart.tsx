@@ -1,9 +1,9 @@
 import { Pressable, View } from 'react-native';
 import Svg, { Circle, Line, Path, Polygon, Rect, Text as SvgText } from 'react-native-svg';
-import { bgColor, COLORS } from '../lib/glucose';
+import { bgColor } from '../lib/glucose';
 import { formatTime } from '../lib/time';
 import type { TimeFormat } from '../lib/ThemeContext';
-import type { MarkerShape } from '../lib/theme';
+import { withAlpha, type MarkerShape, type ThemeColors } from '../lib/theme';
 
 export interface ChartPoint {
   time: number; // epoch ms
@@ -22,6 +22,7 @@ interface GlucoseChartProps {
   predicted?: ChartPoint[]; // oldest → newest forward projection (oref0 predBGs), drawn dashed past the last real reading
   windowHours: number; // drives the x-axis span and gridline interval
   timeFormat?: TimeFormat; // for gridline time labels
+  colors: ThemeColors; // resolved light/dark theme, from the caller's useTheme()
   onPress?: () => void; // tap-to-cycle window size
 }
 
@@ -73,6 +74,7 @@ export function GlucoseChart({
   predicted = [],
   windowHours,
   timeFormat = '12h',
+  colors,
   onPress,
 }: GlucoseChartProps) {
   if (history.length === 0) return null;
@@ -115,11 +117,13 @@ export function GlucoseChart({
           .join(' ')
       : '';
 
-  const lineColor = bgColor(last.sgv);
+  const lineColor = bgColor(last.sgv, colors);
+  const bandIn = withAlpha(colors.status.success, 0.12);
+  const bandWarn = withAlpha(colors.status.warning, 0.12);
   const bands = [
-    { from: 70, to: 180, color: COLORS.bandIn },
-    { from: 55, to: 70, color: COLORS.bandWarn },
-    { from: 180, to: 250, color: COLORS.bandWarn },
+    { from: 70, to: 180, color: bandIn },
+    { from: 55, to: 70, color: bandWarn },
+    { from: 180, to: 250, color: bandWarn },
   ];
 
   const gridIntervalMs = (GRID_INTERVAL_MIN[windowHours] ?? 60) * 60 * 1000;
@@ -150,7 +154,7 @@ export function GlucoseChart({
             x2={x(t)}
             y1={PADDING.top}
             y2={HEIGHT - PADDING.bottom}
-            stroke={COLORS.grid}
+            stroke={colors.chart.grid}
             strokeDasharray="2 4"
             strokeWidth={1}
           />
@@ -162,7 +166,7 @@ export function GlucoseChart({
             y={HEIGHT - PADDING.bottom + 20}
             textAnchor="middle"
             fontSize={14}
-            fill={COLORS.muted}
+            fill={colors.chart.muted}
           >
             {formatTime(new Date(t), timeFormat)}
           </SvgText>
@@ -175,7 +179,7 @@ export function GlucoseChart({
             x2={WIDTH - PADDING.right}
             y1={y(v)}
             y2={y(v)}
-            stroke={COLORS.grid}
+            stroke={colors.chart.grid}
             strokeDasharray="2 4"
             strokeWidth={1}
           />
@@ -188,7 +192,7 @@ export function GlucoseChart({
             textAnchor="end"
             fontSize={14}
             fontWeight="600"
-            fill={COLORS.muted}
+            fill={colors.chart.muted}
           >
             {v}
           </SvgText>

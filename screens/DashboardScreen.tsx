@@ -20,7 +20,7 @@ import { useGlucose } from '../lib/GlucoseContext';
 import { arrowForDirection, bgColor, formatDelta, formatMinutesAgo, isStale } from '../lib/glucose';
 import { usePrediction } from '../lib/oref/usePrediction';
 import { BASAL_REMINDER_DATA_TYPE } from '../lib/tasks/basalReminders';
-import { quickActionStyles } from '../lib/theme';
+import { quickActionStyle } from '../lib/theme';
 import { useTheme } from '../lib/ThemeContext';
 
 const MARKER_FETCH_COUNT = 50;
@@ -126,22 +126,22 @@ export function DashboardScreen() {
       .then(([treatments, activities, notes]) => {
         const treatmentMarkers: ChartMarker[] = treatments.map((t) => ({
           time: new Date(t.createdAt).getTime(),
-          ...(t.carbs != null ? quickActionStyles.carbs : quickActionStyles.insulin),
+          ...(t.carbs != null ? quickActionStyle(colors, 'carbs') : quickActionStyle(colors, 'insulin')),
         }));
         const activityMarkers: ChartMarker[] = activities.map((a) => ({
           time: new Date(a.loggedAt).getTime(),
-          ...quickActionStyles.activity,
+          ...quickActionStyle(colors, 'activity'),
         }));
         const noteMarkers: ChartMarker[] = notes.map((n) => ({
           time: new Date(n.loggedAt).getTime(),
-          ...quickActionStyles.note,
+          ...quickActionStyle(colors, 'note'),
         }));
         setMarkers([...treatmentMarkers, ...activityMarkers, ...noteMarkers]);
       })
       .catch(() => {
         // Non-critical — markers just won't show for this refresh.
       });
-  }, []);
+  }, [colors]);
 
   // Shared refresh for anything that changes after a log action: chart
   // markers and the prediction callout/IOB-COB stat (a new treatment or
@@ -191,7 +191,7 @@ export function DashboardScreen() {
           <>
             <View style={styles.readingBlock}>
               <View style={styles.headerRow}>
-                <Text style={[styles.glucose, { color: bgColor(current.sgv) }]}>{current.sgv}</Text>
+                <Text style={[styles.glucose, { color: bgColor(current.sgv, colors) }]}>{current.sgv}</Text>
                 <View style={styles.arrowDeltaCol}>
                   <Text style={styles.arrow}>{arrowForDirection(current.direction)}</Text>
                   <Text style={styles.delta}>{formatDelta(current.delta)}</Text>
@@ -211,6 +211,7 @@ export function DashboardScreen() {
                 predicted={predicted}
                 windowHours={windowHours}
                 timeFormat={display.timeFormat}
+                colors={colors}
                 onPress={cycleWindow}
               />
             </View>
@@ -249,31 +250,31 @@ export function DashboardScreen() {
         <View style={styles.quickActionsRow}>
           <QuickActionButton
             label="Carbs"
-            color={quickActionStyles.carbs.color}
+            color={quickActionStyle(colors, 'carbs').color}
             onPress={() => setCarbsVisible(true)}
             styles={styles}
-            icon={<Ionicons name="nutrition-outline" size={iconSize.base} color={quickActionStyles.carbs.color} />}
+            icon={<Ionicons name="nutrition-outline" size={iconSize.base} color={quickActionStyle(colors, 'carbs').color} />}
           />
           <QuickActionButton
             label="Insulin"
-            color={quickActionStyles.insulin.color}
+            color={quickActionStyle(colors, 'insulin').color}
             onPress={() => setInsulinVisible(true)}
             styles={styles}
-            icon={<MaterialCommunityIcons name="needle" size={iconSize.base} color={quickActionStyles.insulin.color} />}
+            icon={<MaterialCommunityIcons name="needle" size={iconSize.base} color={quickActionStyle(colors, 'insulin').color} />}
           />
           <QuickActionButton
             label="Activity"
-            color={quickActionStyles.activity.color}
+            color={quickActionStyle(colors, 'activity').color}
             onPress={() => setActivityVisible(true)}
             styles={styles}
-            icon={<Ionicons name="walk-outline" size={iconSize.base} color={quickActionStyles.activity.color} />}
+            icon={<Ionicons name="walk-outline" size={iconSize.base} color={quickActionStyle(colors, 'activity').color} />}
           />
           <QuickActionButton
             label="Notes"
-            color={quickActionStyles.note.color}
+            color={quickActionStyle(colors, 'note').color}
             onPress={() => setNotesVisible(true)}
             styles={styles}
-            icon={<Ionicons name="create-outline" size={iconSize.base} color={quickActionStyles.note.color} />}
+            icon={<Ionicons name="create-outline" size={iconSize.base} color={quickActionStyle(colors, 'note').color} />}
           />
         </View>
       </Card>

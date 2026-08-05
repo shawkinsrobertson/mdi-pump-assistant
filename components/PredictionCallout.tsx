@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../lib/ThemeContext';
+import { withAlpha } from '../lib/theme';
 import type { PredictionResult } from '../lib/oref/runPrediction';
 
 interface PredictionCalloutProps {
@@ -63,7 +64,7 @@ export function PredictionCallout({ onPress, result, error, checked }: Predictio
           </Text>
         )}
       </View>
-      <Ionicons name="chevron-forward" size={16} color={hasSuggestion ? '#92400e' : colors.text.tertiary} />
+      <Ionicons name="chevron-forward" size={16} color={hasSuggestion ? colors.text.primary : colors.text.tertiary} />
     </Pressable>
   );
 }
@@ -82,7 +83,7 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], spacing: Retu
       width: '100%',
     },
     rowSuggestion: {
-      backgroundColor: '#fef3c7',
+      backgroundColor: withAlpha(colors.status.warning, 0.16),
     },
     textWrap: {
       flex: 1,
@@ -102,7 +103,10 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], spacing: Retu
     },
     suggestionText: {
       fontSize: 13,
-      color: '#92400e',
+      // colors.text.primary, not colors.status.warning — same contrast
+      // issue as PredictionModal's suggestionBox (amber text measured
+      // ~2.7:1 against its own light-mode amber tint).
+      color: colors.text.primary,
       fontWeight: '700',
     },
   });
