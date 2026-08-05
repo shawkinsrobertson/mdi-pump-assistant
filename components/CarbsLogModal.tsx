@@ -1,8 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { DuplicateTreatmentError, insertTreatment } from '../lib/db/treatments';
-import { colors, radius, spacing } from '../lib/theme';
+import { useTheme } from '../lib/ThemeContext';
 
 interface CarbsLogModalProps {
   visible: boolean;
@@ -15,6 +15,8 @@ interface CarbsLogModalProps {
 // computes a suggested insulin dose. Stored as a Meal Bolus treatment
 // with insulin left null, same schema the wizard already writes to.
 export function CarbsLogModal({ visible, onClose, onLogged }: CarbsLogModalProps) {
+  const { colors, radius, spacing } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, radius, spacing), [colors, radius, spacing]);
   const [carbs, setCarbs] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,70 +103,76 @@ export function CarbsLogModal({ visible, onClose, onLogged }: CarbsLogModalProps
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-  },
-  sheet: {
-    backgroundColor: colors.bg.primary,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.base,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text.primary,
-  },
-  field: {
-    marginBottom: spacing.base,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text.label,
-    marginBottom: spacing.xs,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.smMd,
-    fontSize: 16,
-    color: colors.text.primary,
-  },
-  error: {
-    color: colors.status.danger,
-    fontSize: 14,
-    marginBottom: spacing.md,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  button: {
-    flex: 1,
-    backgroundColor: colors.action.primaryBg,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-  },
-  buttonSecondary: {
-    backgroundColor: colors.action.secondaryBg,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: colors.text.inverse,
-    fontWeight: '600',
-  },
-});
+function makeStyles(
+  colors: ReturnType<typeof useTheme>['colors'],
+  radius: ReturnType<typeof useTheme>['radius'],
+  spacing: ReturnType<typeof useTheme>['spacing'],
+) {
+  return StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      justifyContent: 'center',
+    },
+    sheet: {
+      backgroundColor: colors.bg.primary,
+      borderRadius: radius.lg,
+      padding: spacing.xl,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.base,
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: colors.text.primary,
+    },
+    field: {
+      marginBottom: spacing.base,
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.text.label,
+      marginBottom: spacing.xs,
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.smMd,
+      fontSize: 16,
+      color: colors.text.primary,
+    },
+    error: {
+      color: colors.status.danger,
+      fontSize: 14,
+      marginBottom: spacing.md,
+    },
+    buttonRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    button: {
+      flex: 1,
+      backgroundColor: colors.action.primaryBg,
+      borderRadius: radius.md,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+    },
+    buttonSecondary: {
+      backgroundColor: colors.action.secondaryBg,
+    },
+    buttonDisabled: {
+      opacity: 0.6,
+    },
+    buttonText: {
+      color: colors.text.inverse,
+      fontWeight: '600',
+    },
+  });
+}

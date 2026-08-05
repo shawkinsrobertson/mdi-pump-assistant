@@ -1,10 +1,11 @@
 import { View } from 'react-native';
 import Svg, { Line, Path, Text as SvgText } from 'react-native-svg';
-import { COLORS } from '../lib/glucose';
+import { withAlpha, type ThemeColors } from '../lib/theme';
 import type { AgpBucket } from '../lib/trends/agp';
 
 interface AgpChartProps {
   buckets: AgpBucket[]; // 48 half-hour buckets, minuteOfDay 0-1439, some may have no data
+  colors: ThemeColors; // resolved light/dark theme, from the caller's useTheme()
 }
 
 const WIDTH = 800;
@@ -31,7 +32,7 @@ function linePath(points: Array<{ x: number; y: number }>): string {
   return points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 }
 
-export function AgpChart({ buckets }: AgpChartProps) {
+export function AgpChart({ buckets, colors }: AgpChartProps) {
   const withData = buckets.filter((b) => b.count > 0 && b.p10 != null);
   if (withData.length === 0) return null;
 
@@ -64,7 +65,7 @@ export function AgpChart({ buckets }: AgpChartProps) {
             x2={WIDTH - PADDING.right}
             y1={y(v)}
             y2={y(v)}
-            stroke={COLORS.grid}
+            stroke={colors.chart.grid}
             strokeDasharray="2 4"
             strokeWidth={1}
           />
@@ -76,7 +77,7 @@ export function AgpChart({ buckets }: AgpChartProps) {
             y={y(v) + 4}
             textAnchor="end"
             fontSize={LABEL_FONT_SIZE}
-            fill={COLORS.muted}
+            fill={colors.chart.muted}
           >
             {v}
           </SvgText>
@@ -89,15 +90,15 @@ export function AgpChart({ buckets }: AgpChartProps) {
             y={HEIGHT - 8}
             textAnchor="middle"
             fontSize={LABEL_FONT_SIZE}
-            fill={COLORS.muted}
+            fill={colors.chart.muted}
           >
             {hour === 24 ? '24:00' : `${hour}:00`}
           </SvgText>
         ))}
 
-        <Path d={outerBand} fill="rgba(37, 99, 235, 0.15)" />
-        <Path d={innerBand} fill="rgba(37, 99, 235, 0.35)" />
-        <Path d={medianLine} fill="none" stroke="#1e3a8a" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d={outerBand} fill={withAlpha(colors.accent.info, 0.15)} />
+        <Path d={innerBand} fill={withAlpha(colors.accent.info, 0.35)} />
+        <Path d={medianLine} fill="none" stroke={colors.accent.info} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     </View>
   );

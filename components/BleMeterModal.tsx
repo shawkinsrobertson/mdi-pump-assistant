@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Device } from 'react-native-ble-plx';
 import {
@@ -14,6 +14,7 @@ import { describeBleError } from '../lib/ble/errors';
 import { requestBlePermissions } from '../lib/ble/permissions';
 import type { BleGlucoseReading } from '../lib/ble/parseGlucoseMeasurement';
 import type { GlucoseReading } from '../lib/glucose';
+import { useTheme } from '../lib/ThemeContext';
 
 type Status =
   | 'idle'
@@ -33,6 +34,8 @@ interface BleMeterModalProps {
 }
 
 export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }: BleMeterModalProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [status, setStatus] = useState<Status>('idle');
   const [devices, setDevices] = useState<Device[]>([]);
   const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
@@ -228,7 +231,7 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
               onPress={handleSyncHistory}
             >
               {status === 'syncing' ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={colors.text.inverse} />
               ) : (
                 <Text style={styles.buttonText}>Sync history</Text>
               )}
@@ -250,67 +253,70 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    padding: 24,
-    paddingTop: 60,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 16,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  message: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 8,
-  },
-  list: {
-    flexGrow: 0,
-    marginBottom: 16,
-  },
-  deviceRow: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  deviceName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111',
-  },
-  connectedPanel: {
-    marginBottom: 16,
-  },
-  button: {
-    backgroundColor: '#111',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  buttonSecondary: {
-    backgroundColor: '#888',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  error: {
-    color: '#c00',
-    fontSize: 13,
-    marginTop: 8,
-    marginBottom: 8,
-  },
-});
+function makeStyles(colors: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg.primary,
+      padding: 24,
+      paddingTop: 60,
+    },
+    title: {
+      fontSize: 20,
+      fontWeight: '700',
+      marginBottom: 16,
+      color: colors.text.primary,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 12,
+    },
+    message: {
+      fontSize: 14,
+      color: colors.text.secondary,
+      marginBottom: 8,
+    },
+    list: {
+      flexGrow: 0,
+      marginBottom: 16,
+    },
+    deviceRow: {
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border.subtle,
+    },
+    deviceName: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.text.primary,
+    },
+    connectedPanel: {
+      marginBottom: 16,
+    },
+    button: {
+      backgroundColor: colors.action.primaryBg,
+      borderRadius: 8,
+      paddingVertical: 12,
+      alignItems: 'center',
+      marginTop: 12,
+    },
+    buttonSecondary: {
+      backgroundColor: colors.action.secondaryBg,
+    },
+    buttonDisabled: {
+      opacity: 0.6,
+    },
+    buttonText: {
+      color: colors.text.inverse,
+      fontWeight: '600',
+    },
+    error: {
+      color: colors.status.danger,
+      fontSize: 13,
+      marginTop: 8,
+      marginBottom: 8,
+    },
+  });
+}

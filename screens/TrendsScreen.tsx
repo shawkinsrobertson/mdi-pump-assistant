@@ -11,20 +11,17 @@ import type { InsightPayload } from '../lib/insights/insightPayload';
 import { parseInsightContent } from '../lib/insights/parseInsightContent';
 import { useSettings } from '../lib/settings';
 import { runInsightGeneration } from '../lib/tasks/insightTask';
-import { colors, radius, spacing, type ThemeColors } from '../lib/theme';
+import { radius, spacing, type ThemeColors } from '../lib/theme';
 import { computeAgpBuckets, computeAgpSummary } from '../lib/trends/agp';
 import { computeTimeInRange } from '../lib/trends/timeInRange';
 import { TRENDS_WINDOWS, trendsWindowLabel, windowStartMs, type TrendsWindow } from '../lib/trends/window';
 import { useTheme } from '../lib/ThemeContext';
 
-// This one card uses useTheme() (light/dark/system, per the Display
-// setting) rather than the static `colors` export the rest of this
-// screen still uses — see lib/theme.ts's own header comment on Trends
-// not being fully migrated yet. An AI-generated insight benefits from
-// reading as a slightly distinct kind of content, so it gets its own
-// style factory below instead of sharing the module-level `styles`,
-// but it still follows the same light/dark preference as everything
-// else in the app, not a hardcoded palette.
+// The Insights card gets its own style factory (makeInsightStyles)
+// rather than sharing makeStyles below — an AI-generated insight
+// benefits from reading as a slightly distinct kind of content — but
+// both factories consume the same useTheme() result, so all of this
+// screen follows the same light/dark preference.
 function formatInsightDateRange(payload: InsightPayload): string {
   const end = new Date(payload.generatedAt);
   const start = new Date(end.getTime() - payload.windowDays * 24 * 60 * 60 * 1000);
@@ -73,6 +70,10 @@ function formatSummaryValue(stat: SummaryStat, value: number): string {
 export function TrendsScreen() {
   const [settings, , settingsLoaded] = useSettings();
   const { colors: themeColors, spacing: themeSpacing, radius: themeRadius, fontScale } = useTheme();
+  const styles = useMemo(
+    () => makeStyles(themeColors, themeSpacing, themeRadius, fontScale),
+    [themeColors, themeSpacing, themeRadius, fontScale],
+  );
   const insightStyles = useMemo(
     () => makeInsightStyles(themeColors, themeSpacing, themeRadius, fontScale),
     [themeColors, themeSpacing, themeRadius, fontScale],
@@ -175,7 +176,7 @@ export function TrendsScreen() {
           accessibilityRole="button"
           accessibilityLabel="Export"
         >
-          <Ionicons name="share-outline" size={24} color={colors.text.primary} />
+          <Ionicons name="share-outline" size={24} color={themeColors.text.primary} />
         </Pressable>
       </View>
 
@@ -234,7 +235,7 @@ export function TrendsScreen() {
 
         {!error && agpBuckets !== null && readings !== null && readings.length > 0 && (
           <>
-            <AgpChart buckets={agpBuckets} />
+            <AgpChart buckets={agpBuckets} colors={themeColors} />
             {agpSummary && (
               <>
                 <Text style={styles.summaryValue}>{formatSummaryValue(summaryStat, agpSummary[summaryStat])}</Text>
@@ -362,120 +363,132 @@ export function TrendsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg.surface,
-  },
-  content: {
-    padding: spacing.xl,
-    paddingTop: 60,
-    paddingBottom: 120,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.text.primary,
-  },
-  card: {
-    marginBottom: spacing.base,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 12,
-    color: colors.text.primary,
-  },
-  message: {
-    fontSize: 14,
-    color: colors.text.tertiary,
-  },
-  error: {
-    fontSize: 14,
-    color: colors.status.danger,
-  },
-  percentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  percentLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  belowLabel: {
-    color: colors.status.danger,
-  },
-  inRangeLabel: {
-    color: colors.status.success,
-  },
-  aboveLabel: {
-    color: colors.status.warning,
-  },
-  bar: {
-    flexDirection: 'row',
-    height: 16,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    backgroundColor: colors.border.muted,
-  },
-  barSegment: {
-    height: '100%',
-  },
-  belowSegment: {
-    backgroundColor: colors.status.danger,
-  },
-  inRangeSegment: {
-    backgroundColor: colors.status.success,
-  },
-  aboveSegment: {
-    backgroundColor: colors.status.warning,
-  },
-  rangeNote: {
-    fontSize: 14,
-    color: colors.text.tertiary,
-    marginTop: 8,
-  },
-  summaryValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.accent.info,
-    textAlign: 'center',
-    marginTop: 12,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 16,
-  },
-  toggleButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: radius.md,
-    paddingVertical: 12,
-    alignItems: 'center',
-    backgroundColor: colors.bg.primary,
-  },
-  toggleButtonActive: {
-    borderColor: colors.action.primaryBg,
-    backgroundColor: colors.action.primaryBg,
-  },
-  toggleText: {
-    color: colors.text.secondary,
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  toggleTextActive: {
-    color: colors.text.inverse,
-  },
-});
+// Computed per-render from useTheme() (see the component body), same
+// reasoning as makeInsightStyles below — this screen has no
+// theme-independent style left, unlike lib/theme.ts's static `spacing`/
+// `radius` scales which stay identical across light/dark and are safe
+// to keep as plain imports.
+function makeStyles(
+  colors: ThemeColors,
+  spacing: ReturnType<typeof useTheme>['spacing'],
+  radius: ReturnType<typeof useTheme>['radius'],
+  fontScale: number,
+) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg.surface,
+    },
+    content: {
+      padding: spacing.xl,
+      paddingTop: 60,
+      paddingBottom: 120,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    title: {
+      fontSize: 22 * fontScale,
+      fontWeight: '700',
+      color: colors.text.primary,
+    },
+    card: {
+      marginBottom: spacing.base,
+    },
+    cardTitle: {
+      fontSize: 18 * fontScale,
+      fontWeight: '700',
+      marginBottom: 12,
+      color: colors.text.primary,
+    },
+    message: {
+      fontSize: 14 * fontScale,
+      color: colors.text.tertiary,
+    },
+    error: {
+      fontSize: 14 * fontScale,
+      color: colors.status.danger,
+    },
+    percentRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 8,
+    },
+    percentLabel: {
+      fontSize: 16 * fontScale,
+      fontWeight: '700',
+    },
+    belowLabel: {
+      color: colors.status.danger,
+    },
+    inRangeLabel: {
+      color: colors.status.success,
+    },
+    aboveLabel: {
+      color: colors.status.warning,
+    },
+    bar: {
+      flexDirection: 'row',
+      height: 16,
+      borderRadius: radius.md,
+      overflow: 'hidden',
+      backgroundColor: colors.border.muted,
+    },
+    barSegment: {
+      height: '100%',
+    },
+    belowSegment: {
+      backgroundColor: colors.status.danger,
+    },
+    inRangeSegment: {
+      backgroundColor: colors.status.success,
+    },
+    aboveSegment: {
+      backgroundColor: colors.status.warning,
+    },
+    rangeNote: {
+      fontSize: 14 * fontScale,
+      color: colors.text.tertiary,
+      marginTop: 8,
+    },
+    summaryValue: {
+      fontSize: 24 * fontScale,
+      fontWeight: '700',
+      color: colors.accent.info,
+      textAlign: 'center',
+      marginTop: 12,
+    },
+    toggleRow: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 16,
+    },
+    toggleButton: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      borderRadius: radius.md,
+      paddingVertical: 12,
+      alignItems: 'center',
+      backgroundColor: colors.bg.primary,
+    },
+    toggleButtonActive: {
+      borderColor: colors.action.primaryBg,
+      backgroundColor: colors.action.primaryBg,
+    },
+    toggleText: {
+      color: colors.text.secondary,
+      fontWeight: '600',
+      fontSize: 14 * fontScale,
+    },
+    toggleTextActive: {
+      color: colors.text.inverse,
+    },
+  });
+}
 
 // The Insights card's own style factory — computed per-render from
 // useTheme() (see the component body) rather than built once at module

@@ -11,21 +11,20 @@ export interface GlucoseReading {
   _id: string;
 }
 
-export const COLORS = {
-  in: '#16a34a',
-  warn: '#d97706',
-  danger: '#dc2626',
-  bandIn: 'rgba(22, 163, 74, 0.12)',
-  bandWarn: 'rgba(217, 119, 6, 0.12)',
-  grid: '#d1d5db',
-  muted: '#6b7280',
-  foreground: '#111827',
-};
+// Status colors now come from the resolved theme (ThemeColors.status),
+// not a fixed palette — a status color tuned for a white background
+// isn't automatically legible against a near-black one (see lib/theme.ts's
+// light/dark contrast audit). bgColor takes the theme's status colors
+// directly rather than a full ThemeColors to keep this glucose-domain
+// module decoupled from the app's theme module shape.
+export interface BgStatusColors {
+  status: { success: string; warning: string; danger: string };
+}
 
-export function bgColor(sgv: number): string {
-  if (sgv >= 70 && sgv <= 180) return COLORS.in;
-  if ((sgv >= 55 && sgv < 70) || (sgv > 180 && sgv <= 250)) return COLORS.warn;
-  return COLORS.danger;
+export function bgColor(sgv: number, colors: BgStatusColors): string {
+  if (sgv >= 70 && sgv <= 180) return colors.status.success;
+  if ((sgv >= 55 && sgv < 70) || (sgv > 180 && sgv <= 250)) return colors.status.warning;
+  return colors.status.danger;
 }
 
 const TREND_ARROWS: Record<string, string> = {

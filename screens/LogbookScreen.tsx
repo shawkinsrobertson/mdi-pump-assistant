@@ -9,7 +9,7 @@ import { deleteNoteEntry, getRecentNoteEntries, type NoteEntryRecord } from '../
 import { deleteTreatment, getRecentTreatments, type Treatment } from '../lib/db/treatments';
 import { useGlucose } from '../lib/GlucoseContext';
 import { logEntryId, logEntryTime, type LogEntry } from '../lib/logbookEntry';
-import { colors, spacing } from '../lib/theme';
+import { useTheme } from '../lib/ThemeContext';
 
 const RECENT_COUNT = 50;
 
@@ -113,6 +113,8 @@ function matchesQuery(entry: LogEntry, query: string): boolean {
 }
 
 export function LogbookScreen() {
+  const { colors, spacing } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, spacing), [colors, spacing]);
   const { reportBleLiveReading, reportBleHistorySync } = useGlucose();
   const [treatments, setTreatments] = useState<Treatment[] | null>(null);
   const [basalDoses, setBasalDoses] = useState<BasalDoseRecord[] | null>(null);
@@ -265,106 +267,108 @@ export function LogbookScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg.primary,
-    padding: spacing.xl,
-    paddingTop: 60,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: spacing.sm,
-    color: colors.text.primary,
-  },
-  connectMeterLink: {
-    marginBottom: spacing.base,
-  },
-  connectMeterText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.brand,
-  },
-  searchInput: {
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: 8,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.smMd,
-    fontSize: 15,
-    color: colors.text.primary,
-    marginBottom: spacing.base,
-  },
-  listContent: {
-    paddingBottom: 120,
-  },
-  sectionHeader: {
-    backgroundColor: colors.bg.primary,
-    paddingTop: spacing.base,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.text.primary,
-    textAlign: 'right',
-    marginBottom: spacing.xs,
-  },
-  sectionRule: {
-    height: 1,
-    backgroundColor: colors.text.primary,
-    marginBottom: spacing.xs,
-  },
-  message: {
-    fontSize: 14,
-    color: colors.text.tertiary,
-    marginBottom: 12,
-  },
-  error: {
-    fontSize: 14,
-    color: colors.status.danger,
-    marginBottom: 12,
-  },
-  row: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.subtle,
-  },
-  rowHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  eventType: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.text.primary,
-  },
-  time: {
-    fontSize: 12,
-    color: colors.text.tertiary,
-  },
-  detail: {
-    fontSize: 13,
-    color: colors.text.secondary,
-    marginTop: 2,
-  },
-  noteText: {
-    fontSize: 13,
-    color: colors.text.tertiary,
-    fontStyle: 'italic',
-    marginTop: 2,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: spacing.base,
-    marginTop: spacing.sm,
-  },
-  actionLink: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text.secondary,
-  },
-  deleteLink: {
-    color: colors.status.danger,
-  },
-});
+function makeStyles(colors: ReturnType<typeof useTheme>['colors'], spacing: ReturnType<typeof useTheme>['spacing']) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg.primary,
+      padding: spacing.xl,
+      paddingTop: 60,
+    },
+    title: {
+      fontSize: 20,
+      fontWeight: '700',
+      marginBottom: spacing.sm,
+      color: colors.text.primary,
+    },
+    connectMeterLink: {
+      marginBottom: spacing.base,
+    },
+    connectMeterText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.brand,
+    },
+    searchInput: {
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      borderRadius: 8,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.smMd,
+      fontSize: 15,
+      color: colors.text.primary,
+      marginBottom: spacing.base,
+    },
+    listContent: {
+      paddingBottom: 120,
+    },
+    sectionHeader: {
+      backgroundColor: colors.bg.primary,
+      paddingTop: spacing.base,
+    },
+    sectionTitle: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: colors.text.primary,
+      textAlign: 'right',
+      marginBottom: spacing.xs,
+    },
+    sectionRule: {
+      height: 1,
+      backgroundColor: colors.text.primary,
+      marginBottom: spacing.xs,
+    },
+    message: {
+      fontSize: 14,
+      color: colors.text.tertiary,
+      marginBottom: 12,
+    },
+    error: {
+      fontSize: 14,
+      color: colors.status.danger,
+      marginBottom: 12,
+    },
+    row: {
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border.subtle,
+    },
+    rowHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    eventType: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: colors.text.primary,
+    },
+    time: {
+      fontSize: 12,
+      color: colors.text.tertiary,
+    },
+    detail: {
+      fontSize: 13,
+      color: colors.text.secondary,
+      marginTop: 2,
+    },
+    noteText: {
+      fontSize: 13,
+      color: colors.text.tertiary,
+      fontStyle: 'italic',
+      marginTop: 2,
+    },
+    actionsRow: {
+      flexDirection: 'row',
+      gap: spacing.base,
+      marginTop: spacing.sm,
+    },
+    actionLink: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.text.secondary,
+    },
+    deleteLink: {
+      color: colors.status.danger,
+    },
+  });
+}
