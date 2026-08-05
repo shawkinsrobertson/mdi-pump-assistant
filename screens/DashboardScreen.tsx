@@ -174,7 +174,12 @@ export function DashboardScreen() {
               </View>
               <View style={styles.iobCobItem}>
                 <Text style={styles.iobCobLabel}>COB</Text>
-                <Text style={styles.iobCobValue}>{iobCob.mealCOB} g</Text>
+                {iobCob.cobPending ? (
+                  <Text style={styles.iobCobValue}>— g</Text>
+                ) : (
+                  <Text style={styles.iobCobValue}>{iobCob.mealCOB} g</Text>
+                )}
+                {iobCob.cobPending && <Text style={styles.iobCobCaption}>waiting on CGM data</Text>}
               </View>
             </View>
           )}
@@ -372,6 +377,10 @@ function makeStyles(
       fontSize: 15 * fontScale,
       fontWeight: '700',
       color: colors.text.primary,
+    },
+    iobCobCaption: {
+      fontSize: 10 * fontScale,
+      color: colors.text.quaternary,
     },
     cardTitle: {
       fontSize: 16 * fontScale,

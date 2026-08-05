@@ -27,9 +27,11 @@ const MAX_COB = 120; // g
 
 // oref0-meal.js's own CLI bails on carb-absorption detection below this
 // many glucose points ("Not enough glucose data to calculate carb
-// absorption") — replicated here rather than inventing a different
-// threshold, so meal_data behaves the same way upstream's own tooling
-// does with sparse history.
+// absorption"). Kept as an informational threshold (see
+// insufficientGlucoseForCOB below) rather than a hard override — cob.js
+// only actually needs ~45m of recent, contiguous data for its own
+// deviation window, so gating the whole mealCOB result on 3h of total
+// history discarded otherwise-valid calculations.
 const MIN_GLUCOSE_POINTS_FOR_COB = 36;
 
 // oref0's own defaults for how far autosens is allowed to move ISF (see
@@ -62,6 +64,11 @@ export type PredictionResult =
       mdiExcessInsulin: number | null;
       iob: number;
       mealCOB: number;
+      // True when carbs are logged and not yet fully accounted for, but
+      // the most recent glucose trend can't confirm any absorption right
+      // now (e.g. a CGM sync gap) — mealCOB reads 0 without this being a
+      // confirmed "no carbs on board." See cobPending's definition above.
+      cobPending: boolean;
       currentBasal: number;
       insufficientGlucoseForCOB: boolean;
       autosensRatio: number;
@@ -270,6 +277,18 @@ export function computePrediction({
     autosens: { ratio: autosens.ratio },
   });
 
+  // Informational only now — NOT used to force mealCOB to 0. cob.js's own
+  // bucketing loop (lib/oref-vendor/lib/determine-basal/cob.js) already
+  // requires ~45m of recent, contiguous glucose data to produce a
+  // currentDeviation/maxDeviation, and total.js's own "zombie-carb" check
+  // (lib/oref-vendor/lib/meal/total.js) already zeroes mealCOB whenever
+  // that data is missing. This extra 36-point/3h gate used to *also*
+  // force mealCOB to 0 even when cob.js had already computed a perfectly
+  // valid value from a shorter but sufficient recent window (e.g. right
+  // after a fresh BLE reconnect with only ~1h of accumulated history) —
+  // silently discarding logged carbs' COB. Trust cob.js's own gate as the
+  // sole authority; keep this flag only so the UI can flag lower
+  // confidence, not to override the calculation.
   const insufficientGlucoseForCOB = glucoseReadings.length < MIN_GLUCOSE_POINTS_FOR_COB;
   const mealData = generateMealData({
     history: pumpHistory,
@@ -279,11 +298,14 @@ export function computePrediction({
     carbs: carbHistory,
     glucose: toGlucoseData(glucoseReadings),
   });
-  if (insufficientGlucoseForCOB) {
-    // Matches oref0-meal.js's own CLI fallback for the same condition,
-    // rather than trusting a COB estimate built on too little history.
-    mealData.mealCOB = 0;
-  }
+  // total.js tracks raw un-absorbed carbs (mealData.carbs) separately from
+  // the deviation-confirmed mealCOB, and only the latter gets zeroed by its
+  // "zombie-carb" safety net when recent glucose can't confirm absorption
+  // (see cob.js's currentDeviation/maxDeviation null check). When that
+  // happens right after carbs were logged, mealCOB reading 0 is
+  // indistinguishable from "no carbs on board" unless we surface it —
+  // AGENTS.md: never let a bad state silently feed the calculator.
+  const cobPending = (mealData.carbs ?? 0) > 0 && (mealData.mealCOB ?? 0) === 0;
 
   const currenttemp = { duration: 0, rate: 0, temp: 'absolute' };
   const autosensData = { ratio: autosens.ratio };
@@ -332,6 +354,7 @@ export function computePrediction({
     mdiExcessInsulin: rT.mdiExcessInsulin ?? null,
     iob: iobData[0]?.iob ?? 0,
     mealCOB: mealData.mealCOB ?? 0,
+    cobPending,
     currentBasal,
     insufficientGlucoseForCOB,
     autosensRatio: autosens.ratio,
