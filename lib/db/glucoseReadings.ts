@@ -92,6 +92,29 @@ export async function getReadingsSince(sinceMs: number): Promise<GlucoseReading[
   return rows.map(fromRow);
 }
 
+// For the Logbook's "meter reading" row type: unlike getReadingsSince
+// (a time window, for charts/prediction), this is the most recent N
+// readings from one specific source — scoped to 'ble' in practice, so a
+// continuous CGM feed (xDrip+ polling every few minutes) never floods the
+// Logbook the way a handful of daily finger-stick meter readings
+// wouldn't.
+export async function getRecentReadingsBySource(source: string, limit: number): Promise<GlucoseReading[]> {
+  const database = getDb();
+  const rows = await database.getAllAsync<GlucoseReadingRow>(
+    `SELECT * FROM glucose_readings WHERE source = ? ORDER BY date DESC LIMIT ?`,
+    [source, limit],
+  );
+  return rows.map(fromRow);
+}
+
+// Lets a bad/duplicate meter reading be removed from the Logbook the same
+// way any other entry can — matches the (source, external_id) primary key
+// insertReadings writes against.
+export async function deleteReading(source: string, externalId: string): Promise<void> {
+  const database = getDb();
+  await database.runAsync(`DELETE FROM glucose_readings WHERE source = ? AND external_id = ?`, [source, externalId]);
+}
+
 // For useGlucoseSource's hydrate-on-mount: it keys its in-memory map by
 // "source:external_id" (see reportReading/replaceSource), so rebuilding
 // that same key from persisted rows needs the source column too, which

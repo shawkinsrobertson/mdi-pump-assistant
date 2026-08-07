@@ -305,17 +305,59 @@ that specific meter.
   was the real cause of the original write-with-response failure —
   meaning write-without-response may have "worked" only in the narrow
   sense of not killing the connection, while never being the right fix.
-  Unverified on-device yet.
-  If write-with-response also succeeds-but-never-indicates now, both
-  write-type theories are exhausted and something else entirely is
-  going on — worth considering next: xDrip+'s source also defines a
-  Contour-specific proprietary service/characteristics (`CONTOUR_SERVICE`,
-  `CONTOUR_1022/1025/1026`) that this investigation hasn't looked into at
-  all; it's possible the standard GLS/RACP path genuinely doesn't work
-  for this meter over react-native-ble-plx/Android's stack the way it's
-  currently driven, and something in that proprietary path matters.
+  Verified on-device: still `GATT_INTERNAL_ERROR (129)`, same as before
+  the full handshake was added. That closed off the write-type theory
+  entirely — neither write type alone, nor the write type combined with
+  a full xDrip+-equivalent handshake, explained the failure.
+  Researched a third, independent reference implementation at that point
+  (`GlucometerBluetoothToHealthKit`, a Swift/CoreBluetooth driver
+  specifically built and tested against the Contour Next One; no LICENSE
+  file, so studied for approach only, nothing copied). It independently
+  confirmed the RACP command shape (opcode 1, operator 3, sequence-number
+  filter) and — the actual new lead — its characteristic-discovery
+  handler unconditionally enables notifications on *three* characteristics:
+  Glucose Measurement (0x2A18), Glucose Measurement Context (0x2A34), and
+  RACP (0x2A52). This app had only ever subscribed to the first and
+  third. The Contour Next One's Glucose Measurement flags byte has a
+  "context follows" bit, so it's plausible the meter's firmware expects a
+  listener on Context to already exist before it's willing to proceed
+  with a record transfer at all — a precondition invisible at the
+  ATT/GATT protocol level, just an implicit firmware expectation, which
+  would explain a clean write with total silence afterward and no error
+  of any kind.
+  Fix: `connectToMeter()` now also subscribes to Glucose Measurement
+  Context via `monitorGlucoseMeasurementContext()` (diagnostic-only —
+  this app still doesn't parse or use context data), alongside the
+  existing Glucose Measurement subscription; both share one aggregate
+  `liveReadingsSubscription.remove()` for cleanup. Deliberately tested as
+  a single variable, on top of the still-write-with-response state from
+  the previous commit, before touching write type again.
+  **Verified on-device: this was the fix.** RACP sync now completes
+  successfully with write-with-response — the meter reports its stored
+  records and the indication comes back normally. The write-type
+  back-and-forth earlier in this investigation was chasing a symptom;
+  the actual root cause of "write succeeds, meter never responds" was
+  the missing Glucose Measurement Context subscription. Write type can
+  likely be left at with-response (matching the GLS spec's requirement
+  and both other reference implementations) going forward.
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
+
+Follow-up (once sync itself worked): synced records were confirmed
+persisted (`glucose_readings` table, `source: 'ble'` — same store xDrip+
+polling writes to) and feeding the Dashboard/prediction pipeline
+correctly, but didn't show up anywhere in the Logbook screen — by design,
+`LogEntry` (`lib/logbookEntry.ts`) only ever covered
+treatment/basal/activity/note rows. Added a `'glucose'` `LogEntry` kind
+sourced from `getRecentReadingsBySource('ble', …)` (a new
+`lib/db/glucoseReadings.ts` query, alongside a matching `deleteReading`)
+so meter-sync'd readings appear as their own Logbook row (label "Meter
+reading", detail `"<sgv> mg/dL"`, deletable but not editable — a
+device-reported value isn't something to hand-edit). Deliberately scoped
+to the `'ble'` source only, not every persisted glucose_readings row —
+xDrip+'s continuous CGM polling (every ~1–5 minutes) would otherwise
+flood the Logbook the way a handful of daily finger-stick readings never
+would.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
   use, not at module load — its native module doesn't exist outside a
   dev-client/production build, and eager construction at import time

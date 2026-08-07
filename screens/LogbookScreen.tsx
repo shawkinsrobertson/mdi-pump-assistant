@@ -5,25 +5,35 @@ import { BleMeterModal } from '../components/BleMeterModal';
 import { LogbookEntryModal } from '../components/LogbookEntryModal';
 import { deleteActivity, getRecentActivities, type ActivityRecord } from '../lib/db/activities';
 import { deleteBasalDose, getRecentBasalDoses, type BasalDoseRecord } from '../lib/db/basalDoses';
+import { deleteReading, getRecentReadingsBySource } from '../lib/db/glucoseReadings';
 import { deleteNoteEntry, getRecentNoteEntries, type NoteEntryRecord } from '../lib/db/noteEntries';
 import { deleteTreatment, getRecentTreatments, type Treatment } from '../lib/db/treatments';
+import type { GlucoseReading } from '../lib/glucose';
 import { useGlucose } from '../lib/GlucoseContext';
 import { logEntryId, logEntryTime, type LogEntry } from '../lib/logbookEntry';
 import { useTheme } from '../lib/ThemeContext';
 
 const RECENT_COUNT = 50;
 
+// Source key GlucoseContext/useGlucoseSource tag Bluetooth meter readings
+// with (see reportBleHistorySync's replaceSource('ble', ...)) — the only
+// glucose source the Logbook surfaces as its own row type; see LogEntry's
+// 'glucose' kind for why the continuous xDrip+ CGM feed doesn't.
+const BLE_READING_SOURCE = 'ble';
+
 function mergeEntries(
   treatments: Treatment[],
   basalDoses: BasalDoseRecord[],
   activities: ActivityRecord[],
   notes: NoteEntryRecord[],
+  bleReadings: GlucoseReading[],
 ): LogEntry[] {
   const entries: LogEntry[] = [
     ...treatments.map((treatment): LogEntry => ({ kind: 'treatment', treatment })),
     ...basalDoses.map((dose): LogEntry => ({ kind: 'basal', dose })),
     ...activities.map((activity): LogEntry => ({ kind: 'activity', activity })),
     ...notes.map((note): LogEntry => ({ kind: 'note', note })),
+    ...bleReadings.map((reading): LogEntry => ({ kind: 'glucose', reading })),
   ];
   return entries.sort((a, b) => logEntryTime(b).localeCompare(logEntryTime(a)));
 }
@@ -65,6 +75,8 @@ function entryLabel(entry: LogEntry): string {
       return `Activity — ${INTENSITY_LABELS[entry.activity.intensity]}`;
     case 'note':
       return 'Note';
+    case 'glucose':
+      return 'Meter reading';
   }
 }
 
@@ -83,6 +95,8 @@ function entryDetail(entry: LogEntry): string {
       return entry.activity.durationMinutes != null ? `${entry.activity.durationMinutes} min` : '';
     case 'note':
       return entry.note.text;
+    case 'glucose':
+      return `${entry.reading.sgv} mg/dL`;
   }
 }
 
@@ -120,6 +134,7 @@ export function LogbookScreen() {
   const [basalDoses, setBasalDoses] = useState<BasalDoseRecord[] | null>(null);
   const [activities, setActivities] = useState<ActivityRecord[] | null>(null);
   const [notes, setNotes] = useState<NoteEntryRecord[] | null>(null);
+  const [bleReadings, setBleReadings] = useState<GlucoseReading[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null);
@@ -132,12 +147,14 @@ export function LogbookScreen() {
       getRecentBasalDoses(RECENT_COUNT),
       getRecentActivities(RECENT_COUNT),
       getRecentNoteEntries(RECENT_COUNT),
+      getRecentReadingsBySource(BLE_READING_SOURCE, RECENT_COUNT),
     ])
-      .then(([treatmentRows, basalDoseRows, activityRows, noteRows]) => {
+      .then(([treatmentRows, basalDoseRows, activityRows, noteRows, bleReadingRows]) => {
         setTreatments(treatmentRows);
         setBasalDoses(basalDoseRows);
         setActivities(activityRows);
         setNotes(noteRows);
+        setBleReadings(bleReadingRows);
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : String(e));
@@ -159,14 +176,15 @@ export function LogbookScreen() {
     }, [refetch]),
   );
 
-  const loaded = treatments !== null && basalDoses !== null && activities !== null && notes !== null;
+  const loaded =
+    treatments !== null && basalDoses !== null && activities !== null && notes !== null && bleReadings !== null;
 
   const filtered = useMemo(
     () =>
-      mergeEntries(treatments ?? [], basalDoses ?? [], activities ?? [], notes ?? []).filter((e) =>
+      mergeEntries(treatments ?? [], basalDoses ?? [], activities ?? [], notes ?? [], bleReadings ?? []).filter((e) =>
         matchesQuery(e, query),
       ),
-    [treatments, basalDoses, activities, notes, query],
+    [treatments, basalDoses, activities, notes, bleReadings, query],
   );
 
   const handleDelete = useCallback(
@@ -184,6 +202,8 @@ export function LogbookScreen() {
                 await deleteBasalDose(entry.dose.id);
               } else if (entry.kind === 'activity') {
                 await deleteActivity(entry.activity.id);
+              } else if (entry.kind === 'glucose') {
+                await deleteReading(BLE_READING_SOURCE, entry.reading._id);
               } else {
                 await deleteNoteEntry(entry.note.id);
               }
@@ -241,9 +261,11 @@ export function LogbookScreen() {
             {entryDetail(item) !== '' && <Text style={styles.detail}>{entryDetail(item)}</Text>}
             {entryNotes(item) && <Text style={styles.noteText}>{entryNotes(item)}</Text>}
             <View style={styles.actionsRow}>
-              <Pressable onPress={() => setEditingEntry(item)}>
-                <Text style={styles.actionLink}>Edit</Text>
-              </Pressable>
+              {item.kind !== 'glucose' && (
+                <Pressable onPress={() => setEditingEntry(item)}>
+                  <Text style={styles.actionLink}>Edit</Text>
+                </Pressable>
+              )}
               <Pressable onPress={() => handleDelete(item)}>
                 <Text style={[styles.actionLink, styles.deleteLink]}>Delete</Text>
               </Pressable>
