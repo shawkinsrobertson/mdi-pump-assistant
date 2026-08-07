@@ -1,6 +1,6 @@
 import { fromByteArray, toByteArray } from 'base64-js';
 import { BleManager, type Device, type State } from 'react-native-ble-plx';
-import { isOperationCancelledError } from './errors';
+import { describeBleError, isOperationCancelledError } from './errors';
 import {
   CCCD_ENABLE_INDICATIONS,
   CLIENT_CHARACTERISTIC_CONFIG_UUID,
@@ -54,6 +54,23 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// TEMPORARY diagnostic logging for the RACP GATT_INTERNAL_ERROR (129)
+// investigation (see AGENTS.md's Bluetooth section) — remove once the
+// root cause is confirmed and fixed. `[BLE DIAG]` prefix makes these easy
+// to find (and later strip) in `adb logcat` / Metro output, and easy to
+// tell apart from describeBleError()'s user-facing message in
+// BleMeterModal. Logs elapsed-ms-since-sync-start so the timing between
+// steps (not just pass/fail) is visible — useful for telling "failed
+// instantly" apart from "stalled, then failed."
+function diag(label: string, startedAt: number, extra?: unknown) {
+  const elapsed = Date.now() - startedAt;
+  if (extra !== undefined) {
+    console.log(`[BLE DIAG] +${elapsed}ms ${label}`, extra);
+  } else {
+    console.log(`[BLE DIAG] +${elapsed}ms ${label}`);
+  }
+}
+
 // BluetoothGatt.refresh() (what refreshGatt: 'OnConnected' triggers below)
 // is fire-and-forget on Android — there is no callback for when the cache
 // clear actually finishes. Calling discoverAllServicesAndCharacteristics()
@@ -82,9 +99,14 @@ const GATT_REFRESH_SETTLE_DELAY_MS = 300;
 // only; a no-op on iOS (the settle delay below is harmless there either
 // way).
 export async function connectToMeter(deviceId: string): Promise<Device> {
+  const t0 = Date.now();
+  diag('connectToDevice() starting (refreshGatt: OnConnected)', t0);
   const device = await getManager().connectToDevice(deviceId, { refreshGatt: 'OnConnected' });
+  diag('connectToDevice() resolved', t0);
   await delay(GATT_REFRESH_SETTLE_DELAY_MS);
+  diag(`settle delay (${GATT_REFRESH_SETTLE_DELAY_MS}ms) elapsed, starting discovery`, t0);
   await device.discoverAllServicesAndCharacteristics();
+  diag('discoverAllServicesAndCharacteristics() resolved', t0);
   return device;
 }
 
@@ -141,14 +163,29 @@ const BOND_RETRY_DELAY_MS = 2_000;
 // BOND_RETRY_DELAY_MS on failure — the standard workaround above,
 // factored out since the CCCD read and the RACP command write below both
 // need it.
-async function withBondRetry<T>(op: () => Promise<T>): Promise<T> {
+//
+// `label`/`t0` are diagnostic-only (see the `diag` comment above): the
+// previous version of this function always re-threw `firstError` when
+// both attempts failed, which meant the error message shown in the UI
+// could never actually tell us whether the retry attempt did anything —
+// same failure, a different failure, or literally never ran. Logging
+// both attempts' outcomes (not just the final thrown error) directly
+// answers that.
+async function withBondRetry<T>(op: () => Promise<T>, label: string, t0: number): Promise<T> {
   try {
-    return await op();
+    const result = await op();
+    diag(`${label}: first attempt succeeded`, t0);
+    return result;
   } catch (firstError) {
+    diag(`${label}: first attempt FAILED`, t0, describeBleError(firstError));
     await delay(BOND_RETRY_DELAY_MS);
+    diag(`${label}: retrying after ${BOND_RETRY_DELAY_MS}ms delay`, t0);
     try {
-      return await op();
-    } catch {
+      const result = await op();
+      diag(`${label}: retry attempt SUCCEEDED (first attempt's error was transient)`, t0);
+      return result;
+    } catch (retryError) {
+      diag(`${label}: retry attempt also FAILED`, t0, describeBleError(retryError));
       throw firstError;
     }
   }
@@ -183,6 +220,8 @@ async function withBondRetry<T>(op: () => Promise<T>): Promise<T> {
 // (queued first) has already finished. This replaces the previous blind
 // fixed delay (a guess, not a confirmation) with an actual barrier.
 export function fetchStoredRecords(device: Device): Promise<void> {
+  const t0 = Date.now();
+  diag('fetchStoredRecords() starting', t0);
   return new Promise((resolve, reject) => {
     let settled = false;
     let racpSub: { remove(): void } | null = null;
@@ -196,6 +235,7 @@ export function fetchStoredRecords(device: Device): Promise<void> {
     };
 
     const timeout = setTimeout(() => {
+      diag('RACP_TIMEOUT_MS elapsed with no indication from the meter', t0);
       finish(() => reject(new Error('Timed out waiting for the meter to report stored records')));
     }, RACP_TIMEOUT_MS);
 
@@ -213,11 +253,13 @@ export function fetchStoredRecords(device: Device): Promise<void> {
             if (settled) return;
             if (error) {
               if (isOperationCancelledError(error)) return;
+              diag('RACP indication subscription errored', t0, describeBleError(error));
               finish(() => reject(error));
               return;
             }
             if (!characteristic?.value) return;
             const response = parseRacpResponse(toByteArray(characteristic.value));
+            diag('RACP indication received', t0, describeRacpResponseCode(response.responseCode));
             if (
               response.responseCode === RacpResponseCode.Success ||
               response.responseCode === RacpResponseCode.NoRecordsFound
@@ -230,33 +272,49 @@ export function fetchStoredRecords(device: Device): Promise<void> {
           undefined,
           'indication',
         );
+        diag('RACP monitorCharacteristicForService (indication) subscribed', t0);
 
         // 2. Read the CCCD back and wait for it — a barrier that can only
         // resolve after the monitor's own enable write has completed on
         // this connection's single-operation GATT queue. The value itself
         // is just a diagnostic (logged, not enforced) in case this still
         // doesn't resolve the underlying issue.
-        const cccd = await withBondRetry(() =>
-          device.readDescriptorForService(GLUCOSE_SERVICE_UUID, RECORD_ACCESS_CONTROL_POINT_UUID, CLIENT_CHARACTERISTIC_CONFIG_UUID),
+        //
+        // Note this read is very likely NOT itself encryption-protected —
+        // CCCD is a plain notify/indicate toggle per spec, unlike RACP's
+        // own characteristic value — so it succeeding only confirms the
+        // connection is alive, not that the encrypted/authenticated link
+        // RACP's write needs has actually been established. Logged
+        // separately from the write's own outcome below so the two can be
+        // told apart.
+        const cccd = await withBondRetry(
+          () => device.readDescriptorForService(GLUCOSE_SERVICE_UUID, RECORD_ACCESS_CONTROL_POINT_UUID, CLIENT_CHARACTERISTIC_CONFIG_UUID),
+          'RACP CCCD read',
+          t0,
         );
         if (settled) return;
+        const cccdBytes = cccd.value ? Array.from(toByteArray(cccd.value)) : cccd.value;
+        diag('RACP CCCD read back', t0, cccdBytes);
         if (cccd.value == null || toByteArray(cccd.value).join(',') !== CCCD_ENABLE_INDICATIONS.join(',')) {
-          console.error(
-            'RACP CCCD read back unexpected value after enabling indications:',
-            cccd.value ? Array.from(toByteArray(cccd.value)) : cccd.value,
-          );
+          console.error('RACP CCCD read back unexpected value after enabling indications:', cccdBytes);
         }
 
         // 3. Only now write the actual command — the read above confirms
         // the enable write already completed, so this can't race it.
-        await withBondRetry(() =>
-          device.writeCharacteristicWithResponseForService(
-            GLUCOSE_SERVICE_UUID,
-            RECORD_ACCESS_CONTROL_POINT_UUID,
-            fromByteArray(buildReportAllRecordsCommand()),
-          ),
+        diag('writing RACP report-all-records command', t0);
+        await withBondRetry(
+          () =>
+            device.writeCharacteristicWithResponseForService(
+              GLUCOSE_SERVICE_UUID,
+              RECORD_ACCESS_CONTROL_POINT_UUID,
+              fromByteArray(buildReportAllRecordsCommand()),
+            ),
+          'RACP command write',
+          t0,
         );
+        diag('RACP command write acknowledged (write-with-response completed) — awaiting indication', t0);
       } catch (error) {
+        diag('fetchStoredRecords() failed', t0, describeBleError(error));
         finish(() => reject(error as Error));
       }
     })();
