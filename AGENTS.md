@@ -167,11 +167,27 @@ that specific meter.
   API wasn't exposed by the library at all), forcing a clean re-read of
   the device's service/characteristic table on every connect instead of
   trusting Android's cached copy, which can go stale across a re-pair.
-  Android-only; a no-op on iOS. Unverified — needs a rebuilt dev client
-  and an on-device retry of the same sync flow that previously produced
-  GATT_INTERNAL_ERROR (129). If this doesn't resolve it either, the
-  bonded-and-re-encrypted-link theory noted above is the next thing to
-  investigate, not another ordering variant.
+  Android-only; a no-op on iOS.
+  Verified on-device: GATT_INTERNAL_ERROR (129) no longer reproduces, but
+  a new symptom appeared — sync now stalls for several seconds before the
+  connection drops with GATT_CONN_TERMINATE_LOCAL_HOST (a connection-level
+  disconnect the *phone* initiates, not an operation-level error like
+  before). Root cause: BluetoothGatt.refresh() is fire-and-forget on
+  Android — no completion callback — and connectToMeter() was calling
+  discoverAllServicesAndCharacteristics() immediately after it with zero
+  delay, risking discovery against a GATT layer still mid-refresh. That
+  can leave stale/half-populated characteristic references that a later
+  write is sent against without ever getting a response, surfacing not as
+  an immediate error but as a stall until Android's own ~30s ATT timeout
+  kills the connection outright. Fixed by adding a 300ms settle delay
+  (`GATT_REFRESH_SETTLE_DELAY_MS`) between the refreshGatt-triggered
+  connect and service discovery — a heuristic value, not a spec'd one.
+  Unverified — needs a rebuilt dev client and another on-device sync
+  attempt. If GATT_CONN_TERMINATE_LOCAL_HOST still reproduces, the delay
+  may need to be longer rather than the refreshGatt approach abandoned
+  outright, since it did eliminate the original error. If a *different*
+  error resurfaces instead, the bonded-and-re-encrypted-link theory noted
+  above is the next thing to investigate.
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
