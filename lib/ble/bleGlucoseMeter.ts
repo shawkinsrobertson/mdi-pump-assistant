@@ -9,7 +9,7 @@ import {
   RECORD_ACCESS_CONTROL_POINT_UUID,
 } from './gatt';
 import { parseGlucoseMeasurement, type BleGlucoseReading } from './parseGlucoseMeasurement';
-import { buildReportAllRecordsCommand, describeRacpResponseCode, parseRacpResponse, RacpResponseCode } from './racp';
+import { buildFetchAllRecordsCommand, describeRacpResponseCode, parseRacpResponse, RacpResponseCode } from './racp';
 
 // One manager for the app's lifetime — react-native-ble-plx expects a
 // single BleManager instance, not one per screen/hook. Created lazily
@@ -307,7 +307,7 @@ export function fetchStoredRecords(device: Device): Promise<void> {
             device.writeCharacteristicWithResponseForService(
               GLUCOSE_SERVICE_UUID,
               RECORD_ACCESS_CONTROL_POINT_UUID,
-              fromByteArray(buildReportAllRecordsCommand()),
+              fromByteArray(buildFetchAllRecordsCommand()),
             ),
           'RACP command write',
           t0,

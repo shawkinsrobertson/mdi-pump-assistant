@@ -182,12 +182,54 @@ that specific meter.
   kills the connection outright. Fixed by adding a 300ms settle delay
   (`GATT_REFRESH_SETTLE_DELAY_MS`) between the refreshGatt-triggered
   connect and service discovery — a heuristic value, not a spec'd one.
-  Unverified — needs a rebuilt dev client and another on-device sync
-  attempt. If GATT_CONN_TERMINATE_LOCAL_HOST still reproduces, the delay
-  may need to be longer rather than the refreshGatt approach abandoned
-  outright, since it did eliminate the original error. If a *different*
-  error resurfaces instead, the bonded-and-re-encrypted-link theory noted
-  above is the next thing to investigate.
+  Verified on-device: settle delay fixed GATT_CONN_TERMINATE_LOCAL_HOST —
+  it did not reproduce again after this fix. But with a subsequent fresh
+  forget-and-repair (done directly in Android Settings, ruling out a
+  passkey/bond mismatch too — that pairing succeeded cleanly and the
+  in-app connect also succeeded), "Sync history" still failed, back to
+  the *original* GATT_INTERNAL_ERROR (129). So: refreshGatt + the settle
+  delay are both good fixes (they closed off the two failure modes they
+  targeted) but neither was the root cause of the original error.
+  Temporary diagnostic logging (`[BLE DIAG]`, tagged for easy grep/strip)
+  was added to connectToMeter()/fetchStoredRecords()/withBondRetry() to
+  get real signal instead of guessing further — see git history for
+  `lib/ble/bleGlucoseMeter.ts` around this point if it's since been
+  stripped. The resulting on-device log was decisive:
+  - CCCD read-back after enabling RACP indications: `[2, 0]` — exactly
+    CCCD_ENABLE_INDICATIONS. This *proves* (not just infers) the ordering
+    barrier is correct and indications are genuinely enabled before the
+    write — the two ordering-fix rounds above are conclusively ruled out,
+    not just unproven.
+  - The RACP command write fails in ~111ms, both on the first attempt and
+    the retry 2s later — a fast, reproducible rejection, not a stall or a
+    timeout. The 2s bond-retry delay never helps; the failure is
+    identical both times.
+  - The disconnect reason accompanying this is GATT_CONN_TERMINATE_PEER_USER
+    (19) — the *meter* is the one ending the connection this time, not the
+    phone (contrast with GATT_CONN_TERMINATE_LOCAL_HOST (22) from the
+    settle-delay bug above, which was the phone's own doing).
+  Root cause found by reading xDrip+'s source (GPL-3.0 — studied for
+  approach only, no code copied, same discipline as the earlier ordering
+  research): `services/BluetoothGlucoseMeter.java` explicitly special-cases
+  Ascensia/Contour meters to never send RACP's "All records" operator
+  (opcode 1, operator 1) — `RecordsCmdTx.java` builds a "records >=
+  sequence number" command (operator 3, sequence-number filter) instead,
+  even for a first-ever full sync (sequence defaults to 0). This app was
+  only ever sending opcode 1 + operator 1, which is exactly the command an
+  Ascensia/Contour meter's firmware appears to react to by killing the
+  connection rather than returning a normal RACP response — consistent
+  with every symptom above (correct CCCD state, fast/reproducible failure,
+  peer-initiated disconnect).
+  Fix: `lib/ble/racp.ts`'s `buildFetchAllRecordsCommand()` (renamed from
+  `buildReportAllRecordsCommand`) now builds opcode 1 + operator 3
+  (GREATER_THAN_OR_EQUAL) + sequence-number filter type + sequence 0,
+  instead of opcode 1 + operator 1. Both operators are mandatory for any
+  Bluetooth SIG Glucose Service implementation, so this isn't a
+  Contour-specific branch (unlike xDrip+'s manufacturer-detection
+  approach) — it's picking the operator that's actually reliable in
+  practice while remaining spec-compliant for any meter. Covered by
+  `lib/ble/__tests__/racp.test.js` (exact byte payload). Unverified
+  on-device yet.
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
