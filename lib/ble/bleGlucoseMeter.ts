@@ -307,11 +307,26 @@ export function fetchStoredRecords(device: Device): Promise<void> {
         // failure signature to the pre-fix command, and the log had no
         // way to distinguish "the fix didn't work" from "the build didn't
         // actually include the fix" — this closes that gap for good.
+        //
+        // Write-WITHOUT-response (an ATT Write Command, no ack expected),
+        // not write-WITH-response (an ATT Write Request, which obligates
+        // the peripheral to send back an ATT Write Response): changing
+        // *only* the RACP command's content (opcode 1 + operator 1 vs.
+        // opcode 1 + operator 3) made no difference at all — both failed
+        // identically, fast, with the meter itself ending the connection
+        // (GATT_CONN_TERMINATE_PEER_USER) — which means the write's
+        // payload was never the problem. The Bluetooth Glucose Service
+        // spec requires RACP support plain Write (with response), but if
+        // this meter's firmware only actually implements Write Without
+        // Response for it, receiving a Write Request it doesn't know how
+        // to construct a Write Response for is a plausible reason its
+        // firmware just drops the link instead — content-independent,
+        // fast, and peer-initiated, matching every symptom seen so far.
         const command = buildFetchAllRecordsCommand();
-        diag('writing RACP command', t0, Array.from(command));
+        diag('writing RACP command (write WITHOUT response)', t0, Array.from(command));
         await withBondRetry(
           () =>
-            device.writeCharacteristicWithResponseForService(
+            device.writeCharacteristicWithoutResponseForService(
               GLUCOSE_SERVICE_UUID,
               RECORD_ACCESS_CONTROL_POINT_UUID,
               fromByteArray(command),
@@ -319,7 +334,7 @@ export function fetchStoredRecords(device: Device): Promise<void> {
           'RACP command write',
           t0,
         );
-        diag('RACP command write acknowledged (write-with-response completed) — awaiting indication', t0);
+        diag('RACP command write-without-response call resolved — awaiting indication', t0);
       } catch (error) {
         diag('fetchStoredRecords() failed', t0, describeBleError(error));
         finish(() => reject(error as Error));

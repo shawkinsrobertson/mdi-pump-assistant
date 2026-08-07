@@ -220,16 +220,42 @@ that specific meter.
   connection rather than returning a normal RACP response — consistent
   with every symptom above (correct CCCD state, fast/reproducible failure,
   peer-initiated disconnect).
-  Fix: `lib/ble/racp.ts`'s `buildFetchAllRecordsCommand()` (renamed from
-  `buildReportAllRecordsCommand`) now builds opcode 1 + operator 3
-  (GREATER_THAN_OR_EQUAL) + sequence-number filter type + sequence 0,
-  instead of opcode 1 + operator 1. Both operators are mandatory for any
-  Bluetooth SIG Glucose Service implementation, so this isn't a
-  Contour-specific branch (unlike xDrip+'s manufacturer-detection
+  Fix attempted: `lib/ble/racp.ts`'s `buildFetchAllRecordsCommand()`
+  (renamed from `buildReportAllRecordsCommand`) now builds opcode 1 +
+  operator 3 (GREATER_THAN_OR_EQUAL) + sequence-number filter type +
+  sequence 0, instead of opcode 1 + operator 1. Both operators are
+  mandatory for any Bluetooth SIG Glucose Service implementation, so this
+  isn't a Contour-specific branch (unlike xDrip+'s manufacturer-detection
   approach) — it's picking the operator that's actually reliable in
   practice while remaining spec-compliant for any meter. Covered by
-  `lib/ble/__tests__/racp.test.js` (exact byte payload). Unverified
-  on-device yet.
+  `lib/ble/__tests__/racp.test.js` (exact byte payload).
+  Verified on-device this actually shipped (the diagnostic log now logs
+  the real outgoing bytes, not just "writing the command", specifically
+  because an earlier ambiguous test round couldn't rule out a stale build
+  — see the commit history around this point): the log showed
+  `[1, 3, 1, 0, 0]`, confirming the new command really was sent. It failed
+  identically anyway — same ~100ms timing, same GATT_INTERNAL_ERROR (129).
+  That's a decisive negative result: changing the command's *content*
+  from opcode 1 + operator 1 to opcode 1 + operator 3 made no difference
+  at all, which rules out the operator itself as the root cause (the
+  xDrip+-inspired fix may still be worth keeping as the more broadly
+  reliable choice, but it wasn't *the* fix).
+  Since the payload doesn't matter, the next candidate is something about
+  the write operation itself, independent of its content: this app uses
+  `writeCharacteristicWithResponseForService` (ATT Write Request, which
+  obligates the peripheral to send back an ATT Write Response). The
+  Bluetooth GLS spec requires RACP support plain Write (with response),
+  but if this meter's firmware only actually implements Write Without
+  Response for it, receiving a Write Request it can't properly answer is
+  a plausible reason it just drops the link instead of responding —
+  content-independent, fast, and peer-initiated (GATT_CONN_TERMINATE_PEER_USER),
+  matching every symptom seen. Switched to
+  `writeCharacteristicWithoutResponseForService` to test this. Unverified
+  on-device yet. If this also fails identically, write type is ruled out
+  too and something more structural is going on — e.g. whether this
+  specific meter's RACP implementation works at all over
+  react-native-ble-plx/Android's stack the way it's currently being
+  driven, independent of command content or write type.
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
