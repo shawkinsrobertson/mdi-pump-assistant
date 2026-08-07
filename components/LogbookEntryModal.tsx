@@ -67,9 +67,11 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
     } else if (entry.kind === 'activity') {
       setIntensity(entry.activity.intensity);
       setDuration(entry.activity.durationMinutes?.toString() ?? '');
-    } else {
+    } else if (entry.kind === 'note') {
       setNoteText(entry.note.text);
     }
+    // 'glucose' (a Bluetooth meter reading) is never editable — LogbookScreen
+    // never offers an Edit link for it — so there's nothing to hydrate here.
   }, [entry]);
 
   const commit = useCallback(async () => {
@@ -102,7 +104,7 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
           intensity,
           durationMinutes: Number.isFinite(durationNum) && durationNum > 0 ? durationNum : null,
         });
-      } else {
+      } else if (entry.kind === 'note') {
         if (noteText.trim() === '') {
           setError('Note text can\'t be empty.');
           setSaving(false);
@@ -110,6 +112,7 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
         }
         await updateNoteEntry(entry.note.id, { text: noteText.trim() });
       }
+      // 'glucose' is never reachable here — see the useEffect above.
       onSaved();
       onClose();
     } catch (e) {

@@ -220,18 +220,144 @@ that specific meter.
   connection rather than returning a normal RACP response — consistent
   with every symptom above (correct CCCD state, fast/reproducible failure,
   peer-initiated disconnect).
-  Fix: `lib/ble/racp.ts`'s `buildFetchAllRecordsCommand()` (renamed from
-  `buildReportAllRecordsCommand`) now builds opcode 1 + operator 3
-  (GREATER_THAN_OR_EQUAL) + sequence-number filter type + sequence 0,
-  instead of opcode 1 + operator 1. Both operators are mandatory for any
-  Bluetooth SIG Glucose Service implementation, so this isn't a
-  Contour-specific branch (unlike xDrip+'s manufacturer-detection
+  Fix attempted: `lib/ble/racp.ts`'s `buildFetchAllRecordsCommand()`
+  (renamed from `buildReportAllRecordsCommand`) now builds opcode 1 +
+  operator 3 (GREATER_THAN_OR_EQUAL) + sequence-number filter type +
+  sequence 0, instead of opcode 1 + operator 1. Both operators are
+  mandatory for any Bluetooth SIG Glucose Service implementation, so this
+  isn't a Contour-specific branch (unlike xDrip+'s manufacturer-detection
   approach) — it's picking the operator that's actually reliable in
   practice while remaining spec-compliant for any meter. Covered by
-  `lib/ble/__tests__/racp.test.js` (exact byte payload). Unverified
-  on-device yet.
+  `lib/ble/__tests__/racp.test.js` (exact byte payload).
+  Verified on-device this actually shipped (the diagnostic log now logs
+  the real outgoing bytes, not just "writing the command", specifically
+  because an earlier ambiguous test round couldn't rule out a stale build
+  — see the commit history around this point): the log showed
+  `[1, 3, 1, 0, 0]`, confirming the new command really was sent. It failed
+  identically anyway — same ~100ms timing, same GATT_INTERNAL_ERROR (129).
+  That's a decisive negative result: changing the command's *content*
+  from opcode 1 + operator 1 to opcode 1 + operator 3 made no difference
+  at all, which rules out the operator itself as the root cause (the
+  xDrip+-inspired fix may still be worth keeping as the more broadly
+  reliable choice, but it wasn't *the* fix).
+  Since the payload doesn't matter, the next candidate is something about
+  the write operation itself, independent of its content: this app uses
+  `writeCharacteristicWithResponseForService` (ATT Write Request, which
+  obligates the peripheral to send back an ATT Write Response). The
+  Bluetooth GLS spec requires RACP support plain Write (with response),
+  but if this meter's firmware only actually implements Write Without
+  Response for it, receiving a Write Request it can't properly answer is
+  a plausible reason it just drops the link instead of responding —
+  content-independent, fast, and peer-initiated (GATT_CONN_TERMINATE_PEER_USER),
+  matching every symptom seen. Switched to
+  `writeCharacteristicWithoutResponseForService` to test this.
+  Verified on-device: real progress — GATT_INTERNAL_ERROR (129) and the
+  connection-kill both stopped happening. The write itself now succeeds.
+  But a new symptom appeared: the meter accepts the write silently and
+  then never sends the RACP completion indication at all —
+  RACP_TIMEOUT_MS (30s) elapses with nothing.
+  Full re-read of xDrip+'s entire connect→handshake→write sequence (not
+  just the RACP-specific parts) surfaced two unconditional steps this app
+  was missing entirely: xDrip+ reads Device Information Service →
+  Manufacturer Name (0x180A/0x2A29) and Current Time Service → Current
+  Time (0x2A2B) for *every* meter, queued (and guaranteed to complete)
+  before it ever touches RACP. It also guarantees Glucose Measurement
+  notifications are fully enabled before RACP, via its strict
+  single-operation queue — this app started that subscription in
+  `BleMeterModal.tsx` on connect but never confirmed the enable write
+  actually completed (unlike RACP's own confirmed CCCD barrier), relying
+  on however much real time happened to elapse before the user tapped
+  "Sync history".
+  One wrinkle worth being honest about: xDrip+ never calls
+  `setWriteType()` anywhere, meaning it uses Android's default write type
+  (with response) for its RACP write — the same type that failed for us.
+  Why write-without-response was needed here but apparently isn't for
+  xDrip+ users on the same meter is unexplained; could be phone/Android
+  version/OEM BLE stack-specific. Keeping write-without-response since
+  it's what's demonstrated to work on-device here, but this means "write
+  type" may not be a universal Contour Next One requirement the way the
+  operator fix (mandatory per spec either way) is.
+  Fix attempt: `connectToMeter()` now reads Manufacturer Name and Current
+  Time (best-effort/non-fatal — logged via `readDiagnosticCharacteristic`,
+  never throws, since a meter lacking one of these shouldn't block
+  connecting), and enables + confirms Glucose Measurement notifications
+  (same CCCD read-back barrier technique as RACP's) before returning.
+  `connectToMeter()`'s signature changed to take the live-reading
+  callbacks directly and return `{ device, liveReadingsSubscription }`,
+  since Glucose Measurement's subscription now has to be created (and
+  confirmed) inside it rather than separately in `BleMeterModal.tsx`
+  afterward.
+  Verified on-device: manufacturer name read back correctly as
+  "AscensiaDiabetesCare" (a confirmed match for xDrip+'s own
+  `startsWith("Ascensia")` branch — we're now sending byte-for-byte the
+  same RACP command xDrip+ sends for this exact manufacturer), current
+  time read back correctly as the real current date/time, both CCCDs
+  confirmed enabled, and the write-without-response call itself
+  succeeded in ~16ms. And still — 30s of nothing, not even a single
+  Glucose Measurement notification. Every step visible in xDrip+'s source
+  is now replicated exactly, and it still doesn't work — ruling out
+  "missing handshake step" as the explanation for write-without-response
+  succeeding-but-never-indicating.
+  Given that, re-tested write-WITH-response (matching what xDrip+
+  actually does — it never calls `setWriteType()`, so it always uses
+  Android's with-response default) now that the full handshake is in
+  place, on the theory that the *missing handshake*, not the write type,
+  was the real cause of the original write-with-response failure —
+  meaning write-without-response may have "worked" only in the narrow
+  sense of not killing the connection, while never being the right fix.
+  Verified on-device: still `GATT_INTERNAL_ERROR (129)`, same as before
+  the full handshake was added. That closed off the write-type theory
+  entirely — neither write type alone, nor the write type combined with
+  a full xDrip+-equivalent handshake, explained the failure.
+  Researched a third, independent reference implementation at that point
+  (`GlucometerBluetoothToHealthKit`, a Swift/CoreBluetooth driver
+  specifically built and tested against the Contour Next One; no LICENSE
+  file, so studied for approach only, nothing copied). It independently
+  confirmed the RACP command shape (opcode 1, operator 3, sequence-number
+  filter) and — the actual new lead — its characteristic-discovery
+  handler unconditionally enables notifications on *three* characteristics:
+  Glucose Measurement (0x2A18), Glucose Measurement Context (0x2A34), and
+  RACP (0x2A52). This app had only ever subscribed to the first and
+  third. The Contour Next One's Glucose Measurement flags byte has a
+  "context follows" bit, so it's plausible the meter's firmware expects a
+  listener on Context to already exist before it's willing to proceed
+  with a record transfer at all — a precondition invisible at the
+  ATT/GATT protocol level, just an implicit firmware expectation, which
+  would explain a clean write with total silence afterward and no error
+  of any kind.
+  Fix: `connectToMeter()` now also subscribes to Glucose Measurement
+  Context via `monitorGlucoseMeasurementContext()` (diagnostic-only —
+  this app still doesn't parse or use context data), alongside the
+  existing Glucose Measurement subscription; both share one aggregate
+  `liveReadingsSubscription.remove()` for cleanup. Deliberately tested as
+  a single variable, on top of the still-write-with-response state from
+  the previous commit, before touching write type again.
+  **Verified on-device: this was the fix.** RACP sync now completes
+  successfully with write-with-response — the meter reports its stored
+  records and the indication comes back normally. The write-type
+  back-and-forth earlier in this investigation was chasing a symptom;
+  the actual root cause of "write succeeds, meter never responds" was
+  the missing Glucose Measurement Context subscription. Write type can
+  likely be left at with-response (matching the GLS spec's requirement
+  and both other reference implementations) going forward.
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
+
+Follow-up (once sync itself worked): synced records were confirmed
+persisted (`glucose_readings` table, `source: 'ble'` — same store xDrip+
+polling writes to) and feeding the Dashboard/prediction pipeline
+correctly, but didn't show up anywhere in the Logbook screen — by design,
+`LogEntry` (`lib/logbookEntry.ts`) only ever covered
+treatment/basal/activity/note rows. Added a `'glucose'` `LogEntry` kind
+sourced from `getRecentReadingsBySource('ble', …)` (a new
+`lib/db/glucoseReadings.ts` query, alongside a matching `deleteReading`)
+so meter-sync'd readings appear as their own Logbook row (label "Meter
+reading", detail `"<sgv> mg/dL"`, deletable but not editable — a
+device-reported value isn't something to hand-edit). Deliberately scoped
+to the `'ble'` source only, not every persisted glucose_readings row —
+xDrip+'s continuous CGM polling (every ~1–5 minutes) would otherwise
+flood the Logbook the way a handful of daily finger-stick readings never
+would.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
   use, not at module load — its native module doesn't exist outside a
   dev-client/production build, and eager construction at import time

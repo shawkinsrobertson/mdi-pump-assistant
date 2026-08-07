@@ -1,11 +1,17 @@
 import { fromByteArray, toByteArray } from 'base64-js';
-import { BleManager, type Device, type State } from 'react-native-ble-plx';
+import { BleManager, type Characteristic, type Device, type State } from 'react-native-ble-plx';
 import { describeBleError, isOperationCancelledError } from './errors';
 import {
   CCCD_ENABLE_INDICATIONS,
+  CCCD_ENABLE_NOTIFICATIONS,
   CLIENT_CHARACTERISTIC_CONFIG_UUID,
+  CURRENT_TIME_SERVICE_UUID,
+  CURRENT_TIME_UUID,
+  DEVICE_INFORMATION_SERVICE_UUID,
+  GLUCOSE_MEASUREMENT_CONTEXT_UUID,
   GLUCOSE_MEASUREMENT_UUID,
   GLUCOSE_SERVICE_UUID,
+  MANUFACTURER_NAME_STRING_UUID,
   RECORD_ACCESS_CONTROL_POINT_UUID,
 } from './gatt';
 import { parseGlucoseMeasurement, type BleGlucoseReading } from './parseGlucoseMeasurement';
@@ -86,6 +92,38 @@ function diag(label: string, startedAt: number, extra?: unknown) {
 // guess, not a spec'd value — adjust if this still races on-device.
 const GATT_REFRESH_SETTLE_DELAY_MS = 300;
 
+// ASCII-only decode (Manufacturer Name String values are plain ASCII per
+// the Device Information Service spec — "Contour", "Ascensia", "Bayer",
+// etc.) — avoids pulling in a Buffer polyfill just for this diagnostic.
+function bytesToAsciiString(bytes: Uint8Array): string {
+  return String.fromCharCode(...bytes);
+}
+
+// Best-effort diagnostic read: logs the result (or failure) but never
+// throws, since a connect shouldn't fail just because one meter doesn't
+// expose Manufacturer Name or Current Time (xDrip+ itself special-cases
+// meters missing a time characteristic — see AGENTS.md). Returns the
+// characteristic on success, null on failure, purely for callers that
+// want the value rather than just the read having happened.
+async function readDiagnosticCharacteristic(
+  device: Device,
+  serviceUUID: string,
+  characteristicUUID: string,
+  label: string,
+  t0: number,
+  decode?: (bytes: Uint8Array) => string,
+): Promise<Characteristic | null> {
+  try {
+    const characteristic = await device.readCharacteristicForService(serviceUUID, characteristicUUID);
+    const bytes = characteristic.value ? toByteArray(characteristic.value) : null;
+    diag(`read ${label}`, t0, bytes ? (decode ? decode(bytes) : Array.from(bytes)) : characteristic.value);
+    return characteristic;
+  } catch (error) {
+    diag(`read ${label} FAILED (non-fatal, continuing)`, t0, describeBleError(error));
+    return null;
+  }
+}
+
 // refreshGatt: 'OnConnected' calls Android's BluetoothGatt.refresh() (a
 // hidden API react-native-ble-plx wraps internally — no native module
 // needed) right after connecting, forcing a clean re-read of the
@@ -98,7 +136,32 @@ const GATT_REFRESH_SETTLE_DELAY_MS = 300;
 // and toward something like a stale cache surviving a re-pair. Android
 // only; a no-op on iOS (the settle delay below is harmless there either
 // way).
-export async function connectToMeter(deviceId: string): Promise<Device> {
+//
+// Also reads Manufacturer Name and Current Time, and enables + confirms
+// Glucose Measurement notifications, before returning — mirroring
+// xDrip+'s connection sequence (GPL-3.0, studied for approach only, no
+// code copied), which does both of those reads and confirms Glucose
+// Measurement notifications are enabled for every meter, unconditionally,
+// before its queue ever reaches the RACP indication/write steps. Our own
+// RACP write previously appeared to succeed (write-without-response, no
+// more GATT_INTERNAL_ERROR) but the meter never sent the completion
+// indication — a plausible explanation is a firmware precondition on one
+// of these steps that isn't visible at the ATT/GATT protocol level at
+// all, just an implicit expectation baked into this meter's firmware.
+// Neither read's *result* changes this app's behavior today (no
+// manufacturer branching, no clock-diff correction) — they're read
+// purely to test whether performing them changes what the meter does
+// with a later RACP request.
+export interface ConnectedMeter {
+  device: Device;
+  liveReadingsSubscription: { remove(): void };
+}
+
+export async function connectToMeter(
+  deviceId: string,
+  onReading: (reading: BleGlucoseReading) => void,
+  onError: (error: Error) => void,
+): Promise<ConnectedMeter> {
   const t0 = Date.now();
   diag('connectToDevice() starting (refreshGatt: OnConnected)', t0);
   const device = await getManager().connectToDevice(deviceId, { refreshGatt: 'OnConnected' });
@@ -107,7 +170,46 @@ export async function connectToMeter(deviceId: string): Promise<Device> {
   diag(`settle delay (${GATT_REFRESH_SETTLE_DELAY_MS}ms) elapsed, starting discovery`, t0);
   await device.discoverAllServicesAndCharacteristics();
   diag('discoverAllServicesAndCharacteristics() resolved', t0);
-  return device;
+
+  await readDiagnosticCharacteristic(
+    device,
+    DEVICE_INFORMATION_SERVICE_UUID,
+    MANUFACTURER_NAME_STRING_UUID,
+    'manufacturer name',
+    t0,
+    bytesToAsciiString,
+  );
+  await readDiagnosticCharacteristic(device, CURRENT_TIME_SERVICE_UUID, CURRENT_TIME_UUID, 'current time', t0);
+
+  const measurementSubscription = monitorLiveReadings(device, onReading, onError);
+  diag('Glucose Measurement monitorCharacteristicForService (notify) subscribed', t0);
+  const contextSubscription = monitorGlucoseMeasurementContext(device, t0);
+  diag('Glucose Measurement Context monitorCharacteristicForService (notify) subscribed', t0);
+  const liveReadingsSubscription = {
+    remove() {
+      measurementSubscription.remove();
+      contextSubscription.remove();
+    },
+  };
+  // Same CCCD read-back barrier fetchStoredRecords() uses for RACP:
+  // Android runs one GATT operation at a time per connection, so this
+  // read can't complete before the monitor's own enable write (queued
+  // first) already has — confirming Glucose Measurement notifications
+  // are genuinely enabled before RACP is ever touched, rather than
+  // relying on however much real time happens to elapse before the user
+  // taps "Sync history."
+  const measurementCccd = await withBondRetry(
+    () => device.readDescriptorForService(GLUCOSE_SERVICE_UUID, GLUCOSE_MEASUREMENT_UUID, CLIENT_CHARACTERISTIC_CONFIG_UUID),
+    'Glucose Measurement CCCD read',
+    t0,
+  );
+  const measurementCccdBytes = measurementCccd.value ? Array.from(toByteArray(measurementCccd.value)) : measurementCccd.value;
+  diag('Glucose Measurement CCCD read back', t0, measurementCccdBytes);
+  if (measurementCccd.value == null || toByteArray(measurementCccd.value).join(',') !== CCCD_ENABLE_NOTIFICATIONS.join(',')) {
+    console.error('Glucose Measurement CCCD read back unexpected value after enabling notifications:', measurementCccdBytes);
+  }
+
+  return { device, liveReadingsSubscription };
 }
 
 export async function disconnectMeter(deviceId: string): Promise<void> {
@@ -144,6 +246,36 @@ export function monitorLiveReadings(
       if (!characteristic?.value) return;
       const reading = parseGlucoseMeasurement(toByteArray(characteristic.value));
       if (reading) onReading(reading);
+    },
+  );
+}
+
+// Diagnostic-only subscription to Glucose Measurement Context (0x2A34) —
+// this app has never parsed or surfaced context data (meal/carb tags on a
+// record), and still doesn't; this exists purely to test whether *having*
+// the subscription open changes the meter's RACP behavior at all. Found
+// via a third reference implementation (GlucometerBluetoothToHealthKit,
+// no LICENSE — studied for approach only, no code copied), which enables
+// notifications on Glucose Measurement, Glucose Measurement Context, AND
+// RACP unconditionally, before doing anything else — our code has only
+// ever subscribed to the first and third. The Contour Next One's
+// Glucose Measurement flags byte has a "context follows" bit, so it's
+// plausible the meter expects a listener on this characteristic to exist
+// before it's willing to proceed with a record transfer at all, which
+// would explain the write-succeeds-but-meter-never-responds symptom
+// without ever surfacing as an ATT/GATT-level error.
+function monitorGlucoseMeasurementContext(device: Device, t0: number) {
+  return device.monitorCharacteristicForService(
+    GLUCOSE_SERVICE_UUID,
+    GLUCOSE_MEASUREMENT_CONTEXT_UUID,
+    (error, characteristic) => {
+      if (error) {
+        if (isOperationCancelledError(error)) return; // expected when this subscription is intentionally removed (disconnect/cleanup)
+        diag('Glucose Measurement Context subscription errored (non-fatal, diagnostic only)', t0, describeBleError(error));
+        return;
+      }
+      if (!characteristic?.value) return;
+      diag('Glucose Measurement Context notification received', t0, Array.from(toByteArray(characteristic.value)));
     },
   );
 }
@@ -307,8 +439,24 @@ export function fetchStoredRecords(device: Device): Promise<void> {
         // failure signature to the pre-fix command, and the log had no
         // way to distinguish "the fix didn't work" from "the build didn't
         // actually include the fix" — this closes that gap for good.
+        //
+        // Back to write-WITH-response (an ATT Write Request, which
+        // obligates the peripheral to send back an ATT Write Response) —
+        // matching what xDrip+ actually does (it never calls
+        // setWriteType(), so it uses Android's default, which is
+        // with-response). Write-WITHOUT-response was tried first because
+        // write-with-response was producing an immediate
+        // GATT_INTERNAL_ERROR/connection-kill at the time — but that was
+        // *before* this app read Manufacturer Name/Current Time and
+        // confirmed Glucose Measurement's CCCD. With write-without-response
+        // now confirmed to succeed-but-never-indicate even with that full
+        // handshake in place, it's worth re-testing whether the missing
+        // handshake (not the write type) was the real cause of the
+        // earlier with-response failure, now that every other step here
+        // matches xDrip+'s sequence exactly for a confirmed
+        // "AscensiaDiabetesCare" manufacturer match.
         const command = buildFetchAllRecordsCommand();
-        diag('writing RACP command', t0, Array.from(command));
+        diag('writing RACP command (write WITH response)', t0, Array.from(command));
         await withBondRetry(
           () =>
             device.writeCharacteristicWithResponseForService(
@@ -319,7 +467,7 @@ export function fetchStoredRecords(device: Device): Promise<void> {
           'RACP command write',
           t0,
         );
-        diag('RACP command write acknowledged (write-with-response completed) — awaiting indication', t0);
+        diag('RACP command write (with response) acknowledged — awaiting indication', t0);
       } catch (error) {
         diag('fetchStoredRecords() failed', t0, describeBleError(error));
         finish(() => reject(error as Error));
