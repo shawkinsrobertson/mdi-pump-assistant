@@ -156,6 +156,22 @@ that specific meter.
   *and* explicitly re-encrypted link that Android's automatic bonding
   flow isn't actually establishing before our first touch of RACP, not
   just a timing/ordering issue).
+  Third attempt: stale GATT cache theory. Since both ordering fixes above
+  independently failed to resolve an unchanged, generic internal error,
+  and re-pairing had already happened during testing, tried
+  `connectToDevice`'s `refreshGatt: 'OnConnected'` option (`connectToMeter`
+  in `lib/ble/bleGlucoseMeter.ts`) — this wraps Android's hidden
+  `BluetoothGatt.refresh()` internally (confirmed in
+  `react-native-ble-plx`'s own type defs, `ConnectionOptions.refreshGatt`;
+  no native module needed, contrary to the initial assumption that this
+  API wasn't exposed by the library at all), forcing a clean re-read of
+  the device's service/characteristic table on every connect instead of
+  trusting Android's cached copy, which can go stale across a re-pair.
+  Android-only; a no-op on iOS. Unverified — needs a rebuilt dev client
+  and an on-device retry of the same sync flow that previously produced
+  GATT_INTERNAL_ERROR (129). If this doesn't resolve it either, the
+  bonded-and-re-encrypted-link theory noted above is the next thing to
+  investigate, not another ordering variant.
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
