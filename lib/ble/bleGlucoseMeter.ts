@@ -301,13 +301,20 @@ export function fetchStoredRecords(device: Device): Promise<void> {
 
         // 3. Only now write the actual command — the read above confirms
         // the enable write already completed, so this can't race it.
-        diag('writing RACP report-all-records command', t0);
+        //
+        // Logging the actual bytes here (not just "writing the command")
+        // is deliberate: a previous test round produced an identical
+        // failure signature to the pre-fix command, and the log had no
+        // way to distinguish "the fix didn't work" from "the build didn't
+        // actually include the fix" — this closes that gap for good.
+        const command = buildFetchAllRecordsCommand();
+        diag('writing RACP command', t0, Array.from(command));
         await withBondRetry(
           () =>
             device.writeCharacteristicWithResponseForService(
               GLUCOSE_SERVICE_UUID,
               RECORD_ACCESS_CONTROL_POINT_UUID,
-              fromByteArray(buildFetchAllRecordsCommand()),
+              fromByteArray(command),
             ),
           'RACP command write',
           t0,
