@@ -401,25 +401,26 @@ export function fetchStoredRecords(device: Device): Promise<void> {
         // way to distinguish "the fix didn't work" from "the build didn't
         // actually include the fix" — this closes that gap for good.
         //
-        // Write-WITHOUT-response (an ATT Write Command, no ack expected),
-        // not write-WITH-response (an ATT Write Request, which obligates
-        // the peripheral to send back an ATT Write Response): changing
-        // *only* the RACP command's content (opcode 1 + operator 1 vs.
-        // opcode 1 + operator 3) made no difference at all — both failed
-        // identically, fast, with the meter itself ending the connection
-        // (GATT_CONN_TERMINATE_PEER_USER) — which means the write's
-        // payload was never the problem. The Bluetooth Glucose Service
-        // spec requires RACP support plain Write (with response), but if
-        // this meter's firmware only actually implements Write Without
-        // Response for it, receiving a Write Request it doesn't know how
-        // to construct a Write Response for is a plausible reason its
-        // firmware just drops the link instead — content-independent,
-        // fast, and peer-initiated, matching every symptom seen so far.
+        // Back to write-WITH-response (an ATT Write Request, which
+        // obligates the peripheral to send back an ATT Write Response) —
+        // matching what xDrip+ actually does (it never calls
+        // setWriteType(), so it uses Android's default, which is
+        // with-response). Write-WITHOUT-response was tried first because
+        // write-with-response was producing an immediate
+        // GATT_INTERNAL_ERROR/connection-kill at the time — but that was
+        // *before* this app read Manufacturer Name/Current Time and
+        // confirmed Glucose Measurement's CCCD. With write-without-response
+        // now confirmed to succeed-but-never-indicate even with that full
+        // handshake in place, it's worth re-testing whether the missing
+        // handshake (not the write type) was the real cause of the
+        // earlier with-response failure, now that every other step here
+        // matches xDrip+'s sequence exactly for a confirmed
+        // "AscensiaDiabetesCare" manufacturer match.
         const command = buildFetchAllRecordsCommand();
-        diag('writing RACP command (write WITHOUT response)', t0, Array.from(command));
+        diag('writing RACP command (write WITH response)', t0, Array.from(command));
         await withBondRetry(
           () =>
-            device.writeCharacteristicWithoutResponseForService(
+            device.writeCharacteristicWithResponseForService(
               GLUCOSE_SERVICE_UUID,
               RECORD_ACCESS_CONTROL_POINT_UUID,
               fromByteArray(command),
@@ -427,7 +428,7 @@ export function fetchStoredRecords(device: Device): Promise<void> {
           'RACP command write',
           t0,
         );
-        diag('RACP command write-without-response call resolved — awaiting indication', t0);
+        diag('RACP command write (with response) acknowledged — awaiting indication', t0);
       } catch (error) {
         diag('fetchStoredRecords() failed', t0, describeBleError(error));
         finish(() => reject(error as Error));

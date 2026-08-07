@@ -286,14 +286,34 @@ that specific meter.
   callbacks directly and return `{ device, liveReadingsSubscription }`,
   since Glucose Measurement's subscription now has to be created (and
   confirmed) inside it rather than separately in `BleMeterModal.tsx`
-  afterward. Unverified on-device yet. If RACP still never indicates
-  after this, the missing piece isn't one of these three reads/confirms,
-  and the next thing to check is whether this meter's RACP
-  implementation needs something not visible in xDrip+'s Java at all
-  (e.g. a vendor-specific characteristic under the Contour-specific
-  service UUID also defined in xDrip+'s source but never investigated
-  here) or simply doesn't support this exact request shape over
-  react-native-ble-plx/Android's stack the way it's currently driven.
+  afterward.
+  Verified on-device: manufacturer name read back correctly as
+  "AscensiaDiabetesCare" (a confirmed match for xDrip+'s own
+  `startsWith("Ascensia")` branch — we're now sending byte-for-byte the
+  same RACP command xDrip+ sends for this exact manufacturer), current
+  time read back correctly as the real current date/time, both CCCDs
+  confirmed enabled, and the write-without-response call itself
+  succeeded in ~16ms. And still — 30s of nothing, not even a single
+  Glucose Measurement notification. Every step visible in xDrip+'s source
+  is now replicated exactly, and it still doesn't work — ruling out
+  "missing handshake step" as the explanation for write-without-response
+  succeeding-but-never-indicating.
+  Given that, re-tested write-WITH-response (matching what xDrip+
+  actually does — it never calls `setWriteType()`, so it always uses
+  Android's with-response default) now that the full handshake is in
+  place, on the theory that the *missing handshake*, not the write type,
+  was the real cause of the original write-with-response failure —
+  meaning write-without-response may have "worked" only in the narrow
+  sense of not killing the connection, while never being the right fix.
+  Unverified on-device yet.
+  If write-with-response also succeeds-but-never-indicates now, both
+  write-type theories are exhausted and something else entirely is
+  going on — worth considering next: xDrip+'s source also defines a
+  Contour-specific proprietary service/characteristics (`CONTOUR_SERVICE`,
+  `CONTOUR_1022/1025/1026`) that this investigation hasn't looked into at
+  all; it's possible the standard GLS/RACP path genuinely doesn't work
+  for this meter over react-native-ble-plx/Android's stack the way it's
+  currently driven, and something in that proprietary path matters.
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
