@@ -8,6 +8,7 @@ import {
   CURRENT_TIME_SERVICE_UUID,
   CURRENT_TIME_UUID,
   DEVICE_INFORMATION_SERVICE_UUID,
+  GLUCOSE_MEASUREMENT_CONTEXT_UUID,
   GLUCOSE_MEASUREMENT_UUID,
   GLUCOSE_SERVICE_UUID,
   MANUFACTURER_NAME_STRING_UUID,
@@ -180,8 +181,16 @@ export async function connectToMeter(
   );
   await readDiagnosticCharacteristic(device, CURRENT_TIME_SERVICE_UUID, CURRENT_TIME_UUID, 'current time', t0);
 
-  const liveReadingsSubscription = monitorLiveReadings(device, onReading, onError);
+  const measurementSubscription = monitorLiveReadings(device, onReading, onError);
   diag('Glucose Measurement monitorCharacteristicForService (notify) subscribed', t0);
+  const contextSubscription = monitorGlucoseMeasurementContext(device, t0);
+  diag('Glucose Measurement Context monitorCharacteristicForService (notify) subscribed', t0);
+  const liveReadingsSubscription = {
+    remove() {
+      measurementSubscription.remove();
+      contextSubscription.remove();
+    },
+  };
   // Same CCCD read-back barrier fetchStoredRecords() uses for RACP:
   // Android runs one GATT operation at a time per connection, so this
   // read can't complete before the monitor's own enable write (queued
@@ -237,6 +246,36 @@ export function monitorLiveReadings(
       if (!characteristic?.value) return;
       const reading = parseGlucoseMeasurement(toByteArray(characteristic.value));
       if (reading) onReading(reading);
+    },
+  );
+}
+
+// Diagnostic-only subscription to Glucose Measurement Context (0x2A34) —
+// this app has never parsed or surfaced context data (meal/carb tags on a
+// record), and still doesn't; this exists purely to test whether *having*
+// the subscription open changes the meter's RACP behavior at all. Found
+// via a third reference implementation (GlucometerBluetoothToHealthKit,
+// no LICENSE — studied for approach only, no code copied), which enables
+// notifications on Glucose Measurement, Glucose Measurement Context, AND
+// RACP unconditionally, before doing anything else — our code has only
+// ever subscribed to the first and third. The Contour Next One's
+// Glucose Measurement flags byte has a "context follows" bit, so it's
+// plausible the meter expects a listener on this characteristic to exist
+// before it's willing to proceed with a record transfer at all, which
+// would explain the write-succeeds-but-meter-never-responds symptom
+// without ever surfacing as an ATT/GATT-level error.
+function monitorGlucoseMeasurementContext(device: Device, t0: number) {
+  return device.monitorCharacteristicForService(
+    GLUCOSE_SERVICE_UUID,
+    GLUCOSE_MEASUREMENT_CONTEXT_UUID,
+    (error, characteristic) => {
+      if (error) {
+        if (isOperationCancelledError(error)) return; // expected when this subscription is intentionally removed (disconnect/cleanup)
+        diag('Glucose Measurement Context subscription errored (non-fatal, diagnostic only)', t0, describeBleError(error));
+        return;
+      }
+      if (!characteristic?.value) return;
+      diag('Glucose Measurement Context notification received', t0, Array.from(toByteArray(characteristic.value)));
     },
   );
 }
