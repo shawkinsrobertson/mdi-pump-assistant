@@ -6,7 +6,6 @@ import {
   connectToMeter,
   disconnectMeter,
   fetchStoredRecords,
-  monitorLiveReadings,
   scanForMeters,
   stopScan,
 } from '../lib/ble/bleGlucoseMeter';
@@ -114,11 +113,8 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
       setStatus('connecting');
       setErrorMessage(null);
       try {
-        const connected = await connectToMeter(device.id);
-        setConnectedDevice(connected);
-        setStatus('connected');
-        liveSubRef.current = monitorLiveReadings(
-          connected,
+        const { device: connected, liveReadingsSubscription } = await connectToMeter(
+          device.id,
           (reading) => {
             if (isSyncingRef.current) {
               syncBufferRef.current.push(reading);
@@ -131,6 +127,9 @@ export function BleMeterModal({ visible, onClose, onLiveReading, onHistorySync }
             setErrorMessage(describeBleError(error));
           },
         );
+        setConnectedDevice(connected);
+        setStatus('connected');
+        liveSubRef.current = liveReadingsSubscription;
       } catch (error) {
         setStatus('error');
         setErrorMessage(describeBleError(error));

@@ -250,12 +250,50 @@ that specific meter.
   a plausible reason it just drops the link instead of responding —
   content-independent, fast, and peer-initiated (GATT_CONN_TERMINATE_PEER_USER),
   matching every symptom seen. Switched to
-  `writeCharacteristicWithoutResponseForService` to test this. Unverified
-  on-device yet. If this also fails identically, write type is ruled out
-  too and something more structural is going on — e.g. whether this
-  specific meter's RACP implementation works at all over
-  react-native-ble-plx/Android's stack the way it's currently being
-  driven, independent of command content or write type.
+  `writeCharacteristicWithoutResponseForService` to test this.
+  Verified on-device: real progress — GATT_INTERNAL_ERROR (129) and the
+  connection-kill both stopped happening. The write itself now succeeds.
+  But a new symptom appeared: the meter accepts the write silently and
+  then never sends the RACP completion indication at all —
+  RACP_TIMEOUT_MS (30s) elapses with nothing.
+  Full re-read of xDrip+'s entire connect→handshake→write sequence (not
+  just the RACP-specific parts) surfaced two unconditional steps this app
+  was missing entirely: xDrip+ reads Device Information Service →
+  Manufacturer Name (0x180A/0x2A29) and Current Time Service → Current
+  Time (0x2A2B) for *every* meter, queued (and guaranteed to complete)
+  before it ever touches RACP. It also guarantees Glucose Measurement
+  notifications are fully enabled before RACP, via its strict
+  single-operation queue — this app started that subscription in
+  `BleMeterModal.tsx` on connect but never confirmed the enable write
+  actually completed (unlike RACP's own confirmed CCCD barrier), relying
+  on however much real time happened to elapse before the user tapped
+  "Sync history".
+  One wrinkle worth being honest about: xDrip+ never calls
+  `setWriteType()` anywhere, meaning it uses Android's default write type
+  (with response) for its RACP write — the same type that failed for us.
+  Why write-without-response was needed here but apparently isn't for
+  xDrip+ users on the same meter is unexplained; could be phone/Android
+  version/OEM BLE stack-specific. Keeping write-without-response since
+  it's what's demonstrated to work on-device here, but this means "write
+  type" may not be a universal Contour Next One requirement the way the
+  operator fix (mandatory per spec either way) is.
+  Fix attempt: `connectToMeter()` now reads Manufacturer Name and Current
+  Time (best-effort/non-fatal — logged via `readDiagnosticCharacteristic`,
+  never throws, since a meter lacking one of these shouldn't block
+  connecting), and enables + confirms Glucose Measurement notifications
+  (same CCCD read-back barrier technique as RACP's) before returning.
+  `connectToMeter()`'s signature changed to take the live-reading
+  callbacks directly and return `{ device, liveReadingsSubscription }`,
+  since Glucose Measurement's subscription now has to be created (and
+  confirmed) inside it rather than separately in `BleMeterModal.tsx`
+  afterward. Unverified on-device yet. If RACP still never indicates
+  after this, the missing piece isn't one of these three reads/confirms,
+  and the next thing to check is whether this meter's RACP
+  implementation needs something not visible in xDrip+'s Java at all
+  (e.g. a vendor-specific characteristic under the Contour-specific
+  service UUID also defined in xDrip+'s source but never investigated
+  here) or simply doesn't support this exact request shape over
+  react-native-ble-plx/Android's stack the way it's currently driven.
   Needs a rebuilt dev client (not just a JS reload) any time a native
   module changes — see below.
 - `BleManager` (from `react-native-ble-plx`) is created lazily on first
