@@ -50,6 +50,25 @@ export function stopScan() {
   getManager().stopDeviceScan();
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// BluetoothGatt.refresh() (what refreshGatt: 'OnConnected' triggers below)
+// is fire-and-forget on Android — there is no callback for when the cache
+// clear actually finishes. Calling discoverAllServicesAndCharacteristics()
+// immediately afterward with zero delay risks discovering against a GATT
+// layer that's still mid-refresh, leaving stale/half-populated
+// characteristic references that a later write can be sent against
+// without ever getting a response — which surfaces not as an immediate
+// error but as a stall until Android's own ~30s ATT timeout kills the
+// connection outright (GATT_CONN_TERMINATE_LOCAL_HOST), a strictly worse
+// symptom than the GATT_INTERNAL_ERROR this was meant to fix. A short
+// settle delay between the two calls is the standard mitigation for this
+// specific refresh()-has-no-completion-signal gap. 300ms is a starting
+// guess, not a spec'd value — adjust if this still races on-device.
+const GATT_REFRESH_SETTLE_DELAY_MS = 300;
+
 // refreshGatt: 'OnConnected' calls Android's BluetoothGatt.refresh() (a
 // hidden API react-native-ble-plx wraps internally — no native module
 // needed) right after connecting, forcing a clean re-read of the
@@ -59,10 +78,12 @@ export function stopScan() {
 // AGENTS.md's Bluetooth section: two rounds of operation-ordering fixes
 // (a bond-retry delay, then a CCCD-read barrier) were verified on-device
 // to NOT resolve it, which points away from a timing/ordering root cause
-// and toward something like a stale cache surviving a re-pair. Unverified
-// until tested on-device (Android only; a no-op on iOS).
+// and toward something like a stale cache surviving a re-pair. Android
+// only; a no-op on iOS (the settle delay below is harmless there either
+// way).
 export async function connectToMeter(deviceId: string): Promise<Device> {
   const device = await getManager().connectToDevice(deviceId, { refreshGatt: 'OnConnected' });
+  await delay(GATT_REFRESH_SETTLE_DELAY_MS);
   await device.discoverAllServicesAndCharacteristics();
   return device;
 }
@@ -115,10 +136,6 @@ const RACP_TIMEOUT_MS = 30_000;
 // and retrying once from JS is the standard workaround for this in the
 // react-native-ble-plx ecosystem.
 const BOND_RETRY_DELAY_MS = 2_000;
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 // Runs a GATT operation (read or write), retrying once after
 // BOND_RETRY_DELAY_MS on failure — the standard workaround above,
