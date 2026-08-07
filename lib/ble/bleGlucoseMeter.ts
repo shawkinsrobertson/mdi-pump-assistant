@@ -50,8 +50,19 @@ export function stopScan() {
   getManager().stopDeviceScan();
 }
 
+// refreshGatt: 'OnConnected' calls Android's BluetoothGatt.refresh() (a
+// hidden API react-native-ble-plx wraps internally — no native module
+// needed) right after connecting, forcing a clean re-read of the
+// device's service/characteristic table instead of trusting Android's
+// cached copy. Added specifically to test the stale-GATT-cache theory
+// for the persistent GATT_INTERNAL_ERROR (129) on RACP writes — see
+// AGENTS.md's Bluetooth section: two rounds of operation-ordering fixes
+// (a bond-retry delay, then a CCCD-read barrier) were verified on-device
+// to NOT resolve it, which points away from a timing/ordering root cause
+// and toward something like a stale cache surviving a re-pair. Unverified
+// until tested on-device (Android only; a no-op on iOS).
 export async function connectToMeter(deviceId: string): Promise<Device> {
-  const device = await getManager().connectToDevice(deviceId);
+  const device = await getManager().connectToDevice(deviceId, { refreshGatt: 'OnConnected' });
   await device.discoverAllServicesAndCharacteristics();
   return device;
 }
