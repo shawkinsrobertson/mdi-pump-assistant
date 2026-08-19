@@ -14,12 +14,18 @@ import {
   type HealthActivityRecord,
   type HealthNutritionRecord,
 } from '../lib/db/health';
+import {
+  deleteNightscoutTreatment,
+  getRecentNightscoutTreatments,
+  type NightscoutTreatmentRecord,
+} from '../lib/db/nightscoutTreatments';
 import { deleteNoteEntry, getRecentNoteEntries, type NoteEntryRecord } from '../lib/db/noteEntries';
 import { deleteTreatment, getRecentTreatments, type Treatment } from '../lib/db/treatments';
 import type { GlucoseReading } from '../lib/glucose';
 import { useGlucose } from '../lib/GlucoseContext';
 import { syncHealthData } from '../lib/health/sync';
 import { logEntryId, logEntryTime, type LogEntry } from '../lib/logbookEntry';
+import { isNightscoutConfigured, syncNightscoutTreatments } from '../lib/nightscout/sync';
 import { useSettings } from '../lib/settings';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -39,6 +45,7 @@ function mergeEntries(
   bleReadings: GlucoseReading[],
   healthActivities: HealthActivityRecord[],
   healthNutrition: HealthNutritionRecord[],
+  nightscoutTreatments: NightscoutTreatmentRecord[],
 ): LogEntry[] {
   const entries: LogEntry[] = [
     ...treatments.map((treatment): LogEntry => ({ kind: 'treatment', treatment })),
@@ -48,6 +55,7 @@ function mergeEntries(
     ...bleReadings.map((reading): LogEntry => ({ kind: 'glucose', reading })),
     ...healthActivities.map((record): LogEntry => ({ kind: 'healthActivity', record })),
     ...healthNutrition.map((record): LogEntry => ({ kind: 'healthNutrition', record })),
+    ...nightscoutTreatments.map((record): LogEntry => ({ kind: 'nightscoutTreatment', record })),
   ];
   return entries.sort((a, b) => logEntryTime(b).localeCompare(logEntryTime(a)));
 }
@@ -79,6 +87,11 @@ function groupByDay(entries: LogEntry[]): { title: string; data: LogEntry[] }[] 
 
 const INTENSITY_LABELS: Record<ActivityRecord['intensity'], string> = { low: 'Low', med: 'Medium', high: 'High' };
 
+// Read-only imports (device meter readings, HealthKit/Health Connect,
+// Nightscout) never get an Edit link — see LogEntry's own comment
+// (lib/logbookEntry.ts) for why.
+const IMPORTED_KINDS = new Set<LogEntry['kind']>(['glucose', 'healthActivity', 'healthNutrition', 'nightscoutTreatment']);
+
 function entryLabel(entry: LogEntry): string {
   switch (entry.kind) {
     case 'treatment':
@@ -95,6 +108,8 @@ function entryLabel(entry: LogEntry): string {
       return entry.record.title;
     case 'healthNutrition':
       return 'Nutrition (imported)';
+    case 'nightscoutTreatment':
+      return `${entry.record.eventType ?? 'Treatment'} (Nightscout)`;
   }
 }
 
@@ -124,6 +139,13 @@ function entryDetail(entry: LogEntry): string {
         .join(' · ');
     case 'healthNutrition':
       return `${entry.record.carbsGrams} g carbs`;
+    case 'nightscoutTreatment':
+      return [
+        entry.record.insulin != null ? `${entry.record.insulin} U` : null,
+        entry.record.carbs != null ? `${entry.record.carbs} g carbs` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
   }
 }
 
@@ -133,6 +155,7 @@ function entryDetail(entry: LogEntry): string {
 function entryNotes(entry: LogEntry): string | null {
   if (entry.kind === 'treatment') return entry.treatment.notes;
   if (entry.kind === 'basal') return entry.dose.notes;
+  if (entry.kind === 'nightscoutTreatment') return entry.record.notes;
   return null;
 }
 
@@ -165,6 +188,7 @@ export function LogbookScreen() {
   const [bleReadings, setBleReadings] = useState<GlucoseReading[] | null>(null);
   const [healthActivities, setHealthActivities] = useState<HealthActivityRecord[] | null>(null);
   const [healthNutrition, setHealthNutrition] = useState<HealthNutritionRecord[] | null>(null);
+  const [nightscoutTreatments, setNightscoutTreatments] = useState<NightscoutTreatmentRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null);
@@ -181,40 +205,59 @@ export function LogbookScreen() {
       getRecentReadingsBySource(BLE_READING_SOURCE, RECENT_COUNT),
       getRecentHealthActivities(RECENT_COUNT),
       getRecentHealthNutrition(RECENT_COUNT),
+      getRecentNightscoutTreatments(RECENT_COUNT),
     ])
-      .then(([treatmentRows, basalDoseRows, activityRows, noteRows, bleReadingRows, healthActivityRows, healthNutritionRows]) => {
-        setTreatments(treatmentRows);
-        setBasalDoses(basalDoseRows);
-        setActivities(activityRows);
-        setNotes(noteRows);
-        setBleReadings(bleReadingRows);
-        setHealthActivities(healthActivityRows);
-        setHealthNutrition(healthNutritionRows);
-      })
+      .then(
+        ([
+          treatmentRows,
+          basalDoseRows,
+          activityRows,
+          noteRows,
+          bleReadingRows,
+          healthActivityRows,
+          healthNutritionRows,
+          nightscoutTreatmentRows,
+        ]) => {
+          setTreatments(treatmentRows);
+          setBasalDoses(basalDoseRows);
+          setActivities(activityRows);
+          setNotes(noteRows);
+          setBleReadings(bleReadingRows);
+          setHealthActivities(healthActivityRows);
+          setHealthNutrition(healthNutritionRows);
+          setNightscoutTreatments(nightscoutTreatmentRows);
+        },
+      )
       .catch((e) => {
         setError(e instanceof Error ? e.message : String(e));
       });
   }, []);
 
-  // Pull-to-refresh: syncs HealthKit/Health Connect first (when the
-  // person has it enabled — see Settings > Integrations), then always
-  // refetches every Logbook source, same as the background task and the
-  // Settings "Sync now" button share lib/health/sync.ts's syncHealthData()
-  // rather than each having their own copy. A sync failure here is
-  // swallowed (best-effort, same as the background task) rather than
-  // blocking the rest of the refresh — Settings > Integrations is where
-  // sync errors actually surface.
+  // Pull-to-refresh: syncs HealthKit/Health Connect and Nightscout
+  // treatments first (whichever the person has configured — see Settings
+  // > Integrations), then always refetches every Logbook source. Same
+  // "share the one sync function" reasoning as the background tasks and
+  // Settings "Sync now" buttons — see lib/health/sync.ts's
+  // syncHealthData/lib/nightscout/sync.ts's syncNightscoutTreatments. A
+  // sync failure here is swallowed (best-effort, same as the background
+  // tasks) rather than blocking the rest of the refresh — Settings >
+  // Integrations is where sync errors actually surface.
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      if (settings.healthSyncEnabled) {
-        await syncHealthData().catch((e) => console.error('Pull-to-refresh health sync failed:', e));
-      }
+      await Promise.all([
+        settings.healthSyncEnabled
+          ? syncHealthData().catch((e) => console.error('Pull-to-refresh health sync failed:', e))
+          : Promise.resolve(),
+        isNightscoutConfigured(settings)
+          ? syncNightscoutTreatments().catch((e) => console.error('Pull-to-refresh Nightscout sync failed:', e))
+          : Promise.resolve(),
+      ]);
       await refetch();
     } finally {
       setRefreshing(false);
     }
-  }, [refetch, settings.healthSyncEnabled]);
+  }, [refetch, settings]);
 
   // Refetch every time this tab gains focus (matches the old modal's
   // "refetch on open" behavior) rather than only once on mount, since
@@ -238,7 +281,8 @@ export function LogbookScreen() {
     notes !== null &&
     bleReadings !== null &&
     healthActivities !== null &&
-    healthNutrition !== null;
+    healthNutrition !== null &&
+    nightscoutTreatments !== null;
 
   const filtered = useMemo(
     () =>
@@ -250,8 +294,19 @@ export function LogbookScreen() {
         bleReadings ?? [],
         healthActivities ?? [],
         healthNutrition ?? [],
+        nightscoutTreatments ?? [],
       ).filter((e) => matchesQuery(e, query)),
-    [treatments, basalDoses, activities, notes, bleReadings, healthActivities, healthNutrition, query],
+    [
+      treatments,
+      basalDoses,
+      activities,
+      notes,
+      bleReadings,
+      healthActivities,
+      healthNutrition,
+      nightscoutTreatments,
+      query,
+    ],
   );
 
   const handleDelete = useCallback(
@@ -275,6 +330,8 @@ export function LogbookScreen() {
                 await deleteHealthActivity(entry.record.source, entry.record.externalId);
               } else if (entry.kind === 'healthNutrition') {
                 await deleteHealthNutrition(entry.record.source, entry.record.externalId);
+              } else if (entry.kind === 'nightscoutTreatment') {
+                await deleteNightscoutTreatment(entry.record.id);
               } else {
                 await deleteNoteEntry(entry.note.id);
               }
@@ -335,7 +392,7 @@ export function LogbookScreen() {
             {entryDetail(item) !== '' && <Text style={styles.detail}>{entryDetail(item)}</Text>}
             {entryNotes(item) && <Text style={styles.noteText}>{entryNotes(item)}</Text>}
             <View style={styles.actionsRow}>
-              {item.kind !== 'glucose' && item.kind !== 'healthActivity' && item.kind !== 'healthNutrition' && (
+              {!IMPORTED_KINDS.has(item.kind) && (
                 <Pressable onPress={() => setEditingEntry(item)}>
                   <Text style={styles.actionLink}>Edit</Text>
                 </Pressable>

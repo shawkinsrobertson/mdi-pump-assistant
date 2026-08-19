@@ -9,6 +9,8 @@ export function SettingsField({
   last,
   keyboardType = 'decimal-pad',
   placeholder = '—',
+  autoCapitalize,
+  secureTextEntry,
 }: {
   label: string;
   value: string;
@@ -16,6 +18,14 @@ export function SettingsField({
   last?: boolean;
   keyboardType?: KeyboardTypeOptions;
   placeholder?: string;
+  // URL/token-style fields (Nightscout URL/token, the insights webhook
+  // URL) want 'none' — the default 'sentences' auto-capitalizes the
+  // first character, which silently corrupts a case-sensitive token.
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  // For the Nightscout API token — a real credential, unlike this
+  // screen's other fields, worth masking from shoulder-surfing the same
+  // way any password field would be.
+  secureTextEntry?: boolean;
 }) {
   const { colors } = useTheme();
   const styles = useSettingsStyles();
@@ -29,6 +39,8 @@ export function SettingsField({
         keyboardType={keyboardType}
         placeholder={placeholder}
         placeholderTextColor={colors.text.placeholder}
+        autoCapitalize={autoCapitalize}
+        secureTextEntry={secureTextEntry}
       />
     </View>
   );

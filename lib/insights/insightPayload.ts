@@ -7,6 +7,7 @@
 // drift into two different payload shapes).
 import type { ActivityRecord } from '../db/activities';
 import type { DailyStepsTotal, HealthActivityRecord, HealthNutritionRecord } from '../db/health';
+import type { NightscoutTreatmentRecord } from '../db/nightscoutTreatments';
 import type { NoteEntryRecord } from '../db/noteEntries';
 import type { Treatment } from '../db/treatments';
 import type { GlucoseReading } from '../glucose';
@@ -58,6 +59,14 @@ export interface InsightPayload {
   // "distinguish no-data from genuinely zero" reasoning as
   // TimeInRangeResult.count elsewhere in this codebase.
   overnightLowPct: number | null;
+  // Combines this app's own local treatments with Nightscout treatments
+  // (manual pump-app entries and automatic loop actions alike) into one
+  // count — deliberately not split by source. For a pump user, this
+  // app's local `treatments` table is normally empty (they treat from
+  // their pump, not this app) and Nightscout is the actual record; for
+  // an MDI user it's the reverse. Either way there's one real treatment
+  // history, not two competing ones to reconcile, so summing them is
+  // correct rather than a simplification. See AGENTS.md.
   treatmentsLogged: {
     carbEntries: number;
     insulinEntries: number;
@@ -83,6 +92,7 @@ export interface InsightPayloadInputs {
   dailySteps: DailyStepsTotal[];
   healthActivities: HealthActivityRecord[];
   healthNutrition: HealthNutritionRecord[];
+  nightscoutTreatments: NightscoutTreatmentRecord[];
 }
 
 function summarizeImportedHealthData(
@@ -118,6 +128,7 @@ export function computeInsightPayload(inputs: InsightPayloadInputs): InsightPayl
     dailySteps,
     healthActivities,
     healthNutrition,
+    nightscoutTreatments,
   } = inputs;
 
   let severeLowCount = 0;
@@ -146,8 +157,12 @@ export function computeInsightPayload(inputs: InsightPayloadInputs): InsightPayl
     severeHighCount,
     overnightLowPct: overnightTotal > 0 ? Math.round((100 * overnightBelow) / overnightTotal) : null,
     treatmentsLogged: {
-      carbEntries: treatments.filter((t) => t.carbs != null).length,
-      insulinEntries: treatments.filter((t) => t.insulin != null).length,
+      carbEntries:
+        treatments.filter((t) => t.carbs != null).length +
+        nightscoutTreatments.filter((t) => t.carbs != null).length,
+      insulinEntries:
+        treatments.filter((t) => t.insulin != null).length +
+        nightscoutTreatments.filter((t) => t.insulin != null).length,
       activityEntries: activities.length,
       noteEntries: notes.length,
     },

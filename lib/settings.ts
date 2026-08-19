@@ -17,6 +17,20 @@ export interface BasalScheduleConfig {
   times: string[]; // "HH:MM", 24h — one entry per daily dose
 }
 
+// Which live CGM feed drives "current BG"/history (lib/GlucoseContext.tsx)
+// — deliberately mutually exclusive, not two independent toggles. Both
+// paths ultimately mirror the same underlying sensor data in the common
+// case (xDrip+ usually uploads to the same Nightscout instance a person
+// would point this at), and the glucose_readings dedup key is namespaced
+// by source — `${source}:${reading._id}` — so running both at once would
+// double-ingest the same curve under two different ids rather than
+// merging them. See AGENTS.md for the fuller reasoning.
+export type GlucoseSource = 'xdrip' | 'nightscout';
+
+export function glucoseSourceLabel(source: GlucoseSource): string {
+  return source === 'nightscout' ? 'Nightscout' : 'xDrip+';
+}
+
 // Clinical values ship null/required rather than a "typical" default
 // (AGENTS.md: "never invent clinical defaults" — the user must enter
 // their own ISF/ICR/target/DIA). penIncrement is a UX rounding
@@ -59,6 +73,21 @@ export interface Settings {
   // "since" window for the next sync (lib/health/sync.ts) and the
   // last-synced display on the Integrations screen.
   healthLastSyncedAt: string | null;
+  // Defaults to 'xdrip' — preserves existing behavior for anyone who
+  // hasn't configured Nightscout; switching to 'nightscout' requires
+  // nightscoutUrl/nightscoutToken to both be set (enforced in the
+  // Integrations screen, not here).
+  glucoseSource: GlucoseSource;
+  // Nightscout connectivity (lib/nightscout/) — a remote Nightscout
+  // instance, unlike xDrip+'s device-local server. No default URL/token
+  // shipped (unlike the web app's committed source, which hardcoded a
+  // live token as a default — deliberately not carried over here; see
+  // AGENTS.md).
+  nightscoutUrl: string | null;
+  nightscoutToken: string | null;
+  // Drives the "since" window for the next Nightscout treatments sync
+  // (lib/nightscout/sync.ts) — same pattern as healthLastSyncedAt.
+  nightscoutLastSyncedAt: string | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -74,6 +103,10 @@ export const DEFAULT_SETTINGS: Settings = {
   basalSchedule: null,
   healthSyncEnabled: false,
   healthLastSyncedAt: null,
+  glucoseSource: 'xdrip',
+  nightscoutUrl: null,
+  nightscoutToken: null,
+  nightscoutLastSyncedAt: null,
 };
 
 const STORAGE_KEY = 'app-settings';

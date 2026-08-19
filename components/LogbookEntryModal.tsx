@@ -70,10 +70,11 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
     } else if (entry.kind === 'note') {
       setNoteText(entry.note.text);
     }
-    // 'glucose' (a Bluetooth meter reading), 'healthActivity', and
-    // 'healthNutrition' (HealthKit/Health Connect imports) are never
-    // editable — LogbookScreen never offers an Edit link for any of them
-    // — so there's nothing to hydrate here.
+    // 'glucose' (a Bluetooth meter reading), 'healthActivity'/
+    // 'healthNutrition' (HealthKit/Health Connect imports), and
+    // 'nightscoutTreatment' are never editable — LogbookScreen never
+    // offers an Edit link for any of them — so there's nothing to
+    // hydrate here.
   }, [entry]);
 
   const commit = useCallback(async () => {
@@ -114,8 +115,8 @@ export function LogbookEntryModal({ entry, onClose, onSaved }: LogbookEntryModal
         }
         await updateNoteEntry(entry.note.id, { text: noteText.trim() });
       }
-      // 'glucose'/'healthActivity'/'healthNutrition' are never reachable
-      // here — see the useEffect above.
+      // 'glucose'/'healthActivity'/'healthNutrition'/'nightscoutTreatment'
+      // are never reachable here — see the useEffect above.
       onSaved();
       onClose();
     } catch (e) {
