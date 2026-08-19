@@ -27,9 +27,12 @@ export interface RawNutritionSample {
   loggedAt: number;
 }
 
-// One platform adapter (lib/health/ios.ts, lib/health/android.ts)
-// implements this against its native SDK; lib/health/sync.ts picks
-// whichever matches Platform.OS and doesn't otherwise care which.
+// One platform adapter (lib/health/adapter.ios.ts, adapter.android.ts,
+// adapter.ts for web/unsupported) implements this against its native
+// SDK; Metro's platform-extension file resolution — not a Platform.OS
+// branch — picks exactly one per build, so lib/health/sync.ts just
+// imports `healthAdapter` from './adapter' and doesn't otherwise care
+// which one it got.
 export interface HealthAdapter {
   isAvailable(): Promise<boolean>;
   requestPermissions(): Promise<boolean>;

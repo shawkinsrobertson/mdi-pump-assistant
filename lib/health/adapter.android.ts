@@ -1,6 +1,12 @@
 // Health Connect adapter (react-native-health-connect, MIT). Read-only —
-// same reasoning as lib/health/ios.ts: only `read` permissions are ever
+// same reasoning as adapter.ios.ts: only `read` permissions are ever
 // requested.
+//
+// `.android.ts` (not a plain `.ts`) for the same reason adapter.ios.ts is
+// `.ios.ts` — see that file's comment. This file's own module-level
+// `buildExerciseTypeLabels(ExerciseType)` call below would hit the exact
+// same class of bug on iOS that HealthPermission.StepCount hit on
+// Android, if this were ever bundled into the iOS build.
 import {
   ExerciseType,
   getGrantedPermissions,
@@ -100,7 +106,7 @@ async function readNutrition(sinceMs: number): Promise<RawNutritionSample[]> {
     }));
 }
 
-export const androidHealthAdapter: HealthAdapter = {
+export const healthAdapter: HealthAdapter = {
   isAvailable,
   requestPermissions,
   readSteps,

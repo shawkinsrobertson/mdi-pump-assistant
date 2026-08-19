@@ -2,6 +2,19 @@
 // ever requests `read` permissions, never `write` — see AGENTS.md for why
 // (imported data is reference-only, never fed into COB/IOB).
 //
+// `.ios.ts` (not a plain `.ts` picked by Platform.OS at call time) is
+// deliberate: Metro only ever bundles this file into the iOS build, so
+// it's the only way to guarantee react-native-health's native module is
+// never touched — not even at module-evaluation time — on Android. A
+// prior version imported both platforms' adapters unconditionally from
+// sync.ts and branched on Platform.OS at call time; that still evaluated
+// this file's top-level `HealthPermission.StepCount` reference inside the
+// Android bundle, and `HealthPermission` comes back undefined there since
+// react-native-health has no Android native module at all — crashing
+// with "cannot read property 'StepCount' of undefined" on Android,
+// confirmed on-device. See adapter.android.ts and adapter.ts (the web/
+// unsupported-platform fallback) for the other two.
+//
 // react-native-health's API is callback-based (predates the rest of this
 // codebase's promise-based native modules); every function here just
 // wraps one call in a Promise so lib/health/sync.ts can treat this
@@ -14,13 +27,6 @@ import AppleHealthKit, {
 } from 'react-native-health';
 import type { HealthAdapter, RawActivitySample, RawNutritionSample, RawStepsSample } from './types';
 
-const PERMISSIONS = {
-  permissions: {
-    read: [HealthPermission.StepCount, HealthPermission.Workout, HealthPermission.Carbohydrates],
-    write: [],
-  },
-};
-
 function isAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
     AppleHealthKit.isAvailable((err, available) => resolve(!err && available));
@@ -28,8 +34,14 @@ function isAvailable(): Promise<boolean> {
 }
 
 function requestPermissions(): Promise<boolean> {
+  const permissions = {
+    permissions: {
+      read: [HealthPermission.StepCount, HealthPermission.Workout, HealthPermission.Carbohydrates],
+      write: [],
+    },
+  };
   return new Promise((resolve) => {
-    AppleHealthKit.initHealthKit(PERMISSIONS, (err) => resolve(!err));
+    AppleHealthKit.initHealthKit(permissions, (err) => resolve(!err));
   });
 }
 
@@ -108,7 +120,7 @@ function readNutrition(sinceMs: number): Promise<RawNutritionSample[]> {
   });
 }
 
-export const iosHealthAdapter: HealthAdapter = {
+export const healthAdapter: HealthAdapter = {
   isAvailable,
   requestPermissions,
   readSteps,

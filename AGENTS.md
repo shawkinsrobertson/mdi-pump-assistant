@@ -386,15 +386,35 @@ Settings > Integrations > Health sync (off by default).
   payload (see below), never `lib/oref/`.
 - `lib/health/types.ts` — the `HealthAdapter` interface both platforms
   implement (`isAvailable`, `requestPermissions`, `readSteps`,
-  `readActivities`, `readNutrition`), so `lib/health/sync.ts` doesn't
-  branch on platform anywhere except picking which adapter to use.
-- `lib/health/ios.ts` — wraps `react-native-health` (MIT; callback-based
-  API predates the rest of this codebase's promise-based native modules,
-  so every function here is just that call wrapped in a `Promise`).
-  Reads `getDailyStepCountSamples`, `getAnchoredWorkouts`, and
+  `readActivities`, `readNutrition`).
+- **Real on-device bug found and fixed**: the first version had
+  `lib/health/ios.ts`/`android.ts` as plain files, both imported
+  unconditionally by `sync.ts`, which picked between them with a
+  `Platform.OS` check *at call time*. That still meant both files got
+  *evaluated* on both platforms — and `ios.ts` read
+  `HealthPermission.StepCount` at module scope (not inside a function),
+  which crashed on Android with `TypeError: cannot read property
+  'StepCount' of undefined`, since `react-native-health` has no Android
+  native module at all and its `HealthPermission` export comes back
+  `undefined` there. (`android.ts` had the same latent bug in the other
+  direction via `ExerciseType` — just hadn't been hit yet.) Fixed by
+  renaming to `adapter.ios.ts` / `adapter.android.ts` / `adapter.ts`
+  (web/unsupported-platform fallback) and having `sync.ts` do a single
+  `import { healthAdapter } from './adapter'` — Metro's platform-extension
+  file resolution guarantees only *one* of the three ever gets bundled
+  into a given platform's build, so the wrong platform's native constants
+  are never touched, not even at import time. This is the standard React
+  Native pattern for platform-specific native modules; the original
+  Platform.OS-branch-at-call-time approach only protects against calling
+  the wrong platform's *functions*, not against evaluating its
+  module-level code.
+- `lib/health/adapter.ios.ts` — wraps `react-native-health` (MIT;
+  callback-based API predates the rest of this codebase's promise-based
+  native modules, so every function here is just that call wrapped in a
+  `Promise`). Reads `getDailyStepCountSamples`, `getAnchoredWorkouts`, and
   `getCarbohydratesSamples`.
-- `lib/health/android.ts` — wraps `react-native-health-connect` (MIT),
-  a promise-native API (`initialize`/`requestPermission`/`readRecords`).
+- `lib/health/adapter.android.ts` — wraps `react-native-health-connect`
+  (MIT), a promise-native API (`initialize`/`requestPermission`/`readRecords`).
   Reads the `Steps`, `ExerciseSession`, and `Nutrition` record types.
   `ExerciseSessionRecord` carries no calorie field of its own (unlike
   HealthKit's workout samples) — would need a correlated
@@ -406,10 +426,10 @@ Settings > Integrations > Health sync (off by default).
   no matching label strings) into a display name by reversing the map and
   title-casing the key, rather than hand-copying a ~80-entry name table
   that would drift from the library's own list. Deliberately split out of
-  `android.ts` (which imports the real native module) so this pure
-  humanization logic can be unit tested without a native-module mock —
-  same protocol-logic-vs-native-orchestration split as `lib/ble/racp.ts`
-  vs. `lib/ble/bleGlucoseMeter.ts`.
+  `adapter.android.ts` (which imports the real native module) so this
+  pure humanization logic can be unit tested without a native-module mock
+  — same protocol-logic-vs-native-orchestration split as
+  `lib/ble/racp.ts` vs. `lib/ble/bleGlucoseMeter.ts`.
 - `lib/health/sync.ts` — `syncHealthData()` is the one function every
   caller shares (background task, Settings "Sync now" button, Logbook
   pull-to-refresh), same "one function, every caller" reasoning as

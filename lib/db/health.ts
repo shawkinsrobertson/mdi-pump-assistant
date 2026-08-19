@@ -83,9 +83,9 @@ function getDb(): SQLiteDatabase {
 // the longest window it offers.
 const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
-// The platform adapters (lib/health/ios.ts, lib/health/android.ts) don't
-// know their own source tag — lib/health/sync.ts does, once, based on
-// Platform.OS — so these take it as a separate argument rather than
+// The platform adapters (lib/health/adapter.ios.ts, lib/health/adapter.android.ts)
+// don't know their own source tag — lib/health/sync.ts does, once, based
+// on Platform.OS — so these take it as a separate argument rather than
 // requiring every adapter to stamp it onto each record itself.
 export async function insertHealthSteps(
   source: HealthSource,
