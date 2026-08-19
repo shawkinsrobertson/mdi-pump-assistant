@@ -5,7 +5,7 @@
 import { getActivitiesSince } from '../db/activities';
 import { getReadingsSince } from '../db/glucoseReadings';
 import { getHealthActivitiesSince, getHealthNutritionSince, getStepsTotalsSince } from '../db/health';
-import { getNightscoutTreatmentsSince } from '../db/nightscoutTreatments';
+import { getNightscoutTreatmentsSince, getRecentNightscoutTreatments } from '../db/nightscoutTreatments';
 import { getRecentNoteEntries } from '../db/noteEntries';
 import { getTreatmentsSince } from '../db/treatments';
 import { computeInsightPayload, type InsightPayload } from './insightPayload';
@@ -51,6 +51,31 @@ export async function buildInsightPayload(now: Date = new Date()): Promise<Insig
     isNightscoutConfigured(settings) ? getNightscoutTreatmentsSince(sinceMs) : Promise.resolve([]),
   ]);
   const notes = recentNotes.filter((n) => new Date(n.loggedAt).getTime() >= sinceMs);
+
+  // TEMPORARY diagnostic logging for the "Insights reports zero
+  // carb/insulin entries" investigation — remove once resolved. Narrows
+  // down whether nightscoutTreatments is empty because (a) Nightscout
+  // isn't configured, (b) the table itself has nothing in the 7-day
+  // window (which would make 0 correct, not a bug), or (c) rows are
+  // present but carbs/insulin came back null on all of them.
+  console.log('[INSIGHTS DIAG] isNightscoutConfigured:', isNightscoutConfigured(settings));
+  console.log('[INSIGHTS DIAG] window: since', sinceIso, 'now', now.toISOString());
+  console.log('[INSIGHTS DIAG] nightscoutTreatments in window:', nightscoutTreatments.length);
+  console.log(
+    '[INSIGHTS DIAG] nightscoutTreatments detail:',
+    nightscoutTreatments.map((t) => ({ id: t.id, createdAt: t.createdAt, carbs: t.carbs, insulin: t.insulin, eventType: t.eventType })),
+  );
+  // Unwindowed — the 10 most recent rows in the local table regardless of
+  // date, same query the Logbook itself uses. If this is non-empty but
+  // the windowed list above is empty, the rows exist but are simply
+  // older than 7 days (correct 0, not a bug). If this is ALSO empty, the
+  // sync itself isn't populating the table the way the Logbook screen
+  // showed it did.
+  const recentUnwindowed = await getRecentNightscoutTreatments(10);
+  console.log(
+    '[INSIGHTS DIAG] 10 most recent nightscout_treatments rows (unwindowed):',
+    recentUnwindowed.map((t) => ({ id: t.id, createdAt: t.createdAt, carbs: t.carbs, insulin: t.insulin, eventType: t.eventType })),
+  );
 
   return computeInsightPayload({
     now,
