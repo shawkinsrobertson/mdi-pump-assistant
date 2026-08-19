@@ -11,7 +11,6 @@
       "bundleIdentifier": "com.seamusrobertson.mdipumpassistant",
       "infoPlist": {
         "UIBackgroundModes": [
-          "fetch",
           "fetch"
         ],
         "ITSAppUsesNonExemptEncryption": false
@@ -31,7 +30,10 @@
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_EXERCISE",
+        "android.permission.health.READ_NUTRITION"
       ]
     },
     "plugins": [
@@ -40,7 +42,10 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 26
           }
         }
       ],
@@ -58,7 +63,14 @@
           "icon": "./assets/icon.png",
           "color": "#054AE1"
         }
-      ]
+      ],
+      [
+        "react-native-health",
+        {
+          "healthSharePermission": "Allow $(PRODUCT_NAME) to read your steps, activity, and nutrition data from Health"
+        }
+      ],
+      "react-native-health-connect"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

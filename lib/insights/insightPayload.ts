@@ -6,6 +6,7 @@
 // factoring it out, per the source instructions: the two paths must never
 // drift into two different payload shapes).
 import type { ActivityRecord } from '../db/activities';
+import type { DailyStepsTotal, HealthActivityRecord, HealthNutritionRecord } from '../db/health';
 import type { NoteEntryRecord } from '../db/noteEntries';
 import type { Treatment } from '../db/treatments';
 import type { GlucoseReading } from '../glucose';
@@ -23,6 +24,25 @@ const SEVERE_HIGH_THRESHOLD = 250;
 // 6am local time, a common clinical convention for this kind of report.
 const OVERNIGHT_START_HOUR = 0;
 const OVERNIGHT_END_HOUR = 6;
+
+// Steps/activity/nutrition pulled from HealthKit/Health Connect
+// (lib/health/sync.ts) — read-only, reference data (see AGENTS.md for
+// why it's never fed into oref0's COB/IOB math), but the person
+// explicitly wants the AI-generated insight to be able to reference it
+// (e.g. "you had 3 workouts this week" or "carb entries from your
+// nutrition app don't always have a matching treatment logged"). Kept
+// as one summarized block, not raw per-record dumps, matching
+// `treatmentsLogged` below's own level of detail — the model gets
+// enough to reason about patterns without the payload growing with
+// every synced record.
+export interface ImportedHealthDataSummary {
+  dailySteps: DailyStepsTotal[]; // one entry per day with data, at most windowDays long
+  activitySessionCount: number;
+  activityMinutesTotal: number;
+  activityTypes: string[]; // distinct titles, e.g. ["Running", "Cycling"]
+  nutritionEntryCount: number;
+  nutritionCarbsGramsTotal: number;
+}
 
 export interface InsightPayload {
   generatedAt: string; // ISO 8601
@@ -44,6 +64,10 @@ export interface InsightPayload {
     activityEntries: number;
     noteEntries: number;
   };
+  // null when Health sync isn't enabled (Settings > Integrations) —
+  // distinct from an enabled-but-empty summary, same "no data" vs.
+  // "genuinely zero" distinction as overnightLowPct above.
+  importedHealthData: ImportedHealthDataSummary | null;
 }
 
 export interface InsightPayloadInputs {
@@ -55,10 +79,46 @@ export interface InsightPayloadInputs {
   notes: NoteEntryRecord[];
   rangeLow: number;
   rangeHigh: number;
+  healthSyncEnabled: boolean;
+  dailySteps: DailyStepsTotal[];
+  healthActivities: HealthActivityRecord[];
+  healthNutrition: HealthNutritionRecord[];
+}
+
+function summarizeImportedHealthData(
+  healthSyncEnabled: boolean,
+  dailySteps: DailyStepsTotal[],
+  healthActivities: HealthActivityRecord[],
+  healthNutrition: HealthNutritionRecord[],
+): ImportedHealthDataSummary | null {
+  if (!healthSyncEnabled) return null;
+  return {
+    dailySteps,
+    activitySessionCount: healthActivities.length,
+    activityMinutesTotal: Math.round(
+      healthActivities.reduce((sum, a) => sum + (a.durationMinutes ?? 0), 0),
+    ),
+    activityTypes: Array.from(new Set(healthActivities.map((a) => a.title))),
+    nutritionEntryCount: healthNutrition.length,
+    nutritionCarbsGramsTotal: Math.round(healthNutrition.reduce((sum, n) => sum + n.carbsGrams, 0)),
+  };
 }
 
 export function computeInsightPayload(inputs: InsightPayloadInputs): InsightPayload {
-  const { now, windowDays, glucoseReadings, treatments, activities, notes, rangeLow, rangeHigh } = inputs;
+  const {
+    now,
+    windowDays,
+    glucoseReadings,
+    treatments,
+    activities,
+    notes,
+    rangeLow,
+    rangeHigh,
+    healthSyncEnabled,
+    dailySteps,
+    healthActivities,
+    healthNutrition,
+  } = inputs;
 
   let severeLowCount = 0;
   let severeHighCount = 0;
@@ -91,5 +151,6 @@ export function computeInsightPayload(inputs: InsightPayloadInputs): InsightPayl
       activityEntries: activities.length,
       noteEntries: notes.length,
     },
+    importedHealthData: summarizeImportedHealthData(healthSyncEnabled, dailySteps, healthActivities, healthNutrition),
   };
 }

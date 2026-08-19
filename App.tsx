@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { AppTabBar } from './components/AppTabBar';
 import { GlucoseProvider } from './lib/GlucoseContext';
+import { registerHealthSyncTask } from './lib/tasks/healthSyncTask';
 import { registerInsightTask } from './lib/tasks/insightTask';
 import { ThemeProvider, useTheme } from './lib/ThemeContext';
 import { DashboardScreen } from './screens/DashboardScreen';
@@ -44,6 +45,7 @@ function AppNavigator() {
 export default function App() {
   useEffect(() => {
     registerInsightTask().catch((e) => console.error('Failed to register background insight task:', e));
+    registerHealthSyncTask().catch((e) => console.error('Failed to register background health sync task:', e));
   }, []);
 
   return (

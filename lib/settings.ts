@@ -50,6 +50,15 @@ export interface Settings {
   // No default: nothing is scheduled/reminded until the person sets one
   // up themselves.
   basalSchedule: BasalScheduleConfig | null;
+  // Opt-in (Settings > Integrations > Health sync) — off by default, same
+  // as insightsWebhookUrl above. See lib/health/sync.ts: read-only pull of
+  // steps/activity/nutrition from HealthKit/Health Connect, never written
+  // back, never feeding COB/IOB.
+  healthSyncEnabled: boolean;
+  // ISO 8601, or null before the first successful sync. Drives the
+  // "since" window for the next sync (lib/health/sync.ts) and the
+  // last-synced display on the Integrations screen.
+  healthLastSyncedAt: string | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -63,6 +72,8 @@ export const DEFAULT_SETTINGS: Settings = {
   rangeHigh: 180,
   insightsWebhookUrl: null,
   basalSchedule: null,
+  healthSyncEnabled: false,
+  healthLastSyncedAt: null,
 };
 
 const STORAGE_KEY = 'app-settings';
