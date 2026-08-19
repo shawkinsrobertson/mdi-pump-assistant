@@ -366,6 +366,136 @@ would.
   `lib/ble/bleGlucoseMeter.ts` or `BleMeterModal.tsx`: any effect that
   unconditionally calls a BLE function on mount reintroduces the crash.
 
+## Health data integration (HealthKit / Health Connect)
+
+Read-only pull of steps, workout/activity sessions, and nutrition (carb)
+entries from Apple Health (iOS) or Health Connect (Android) — for people
+who log meals/workouts in a different app (a fitness tracker, a
+nutrition-logging app) and want that data visible here too, opt-in via
+Settings > Integrations > Health sync (off by default).
+
+- **Safety-critical scope decision, made explicitly before any of this was
+  built**: none of this ever reaches oref0's COB/IOB math or the bolus
+  wizard's dosing suggestion, in either direction. A third-party app's
+  carb estimate (barcode scan, crowd-sourced entry, eyeballed portion) is
+  a different trust tier than something typed in by hand right before a
+  treatment — the same conservatism this codebase applies elsewhere
+  (required clinical settings, no invented defaults, no silent
+  auto-logging of basal reminders). Imported activity/nutrition are
+  reference data: they show up in the Logbook and feed the AI Insights
+  payload (see below), never `lib/oref/`.
+- `lib/health/types.ts` — the `HealthAdapter` interface both platforms
+  implement (`isAvailable`, `requestPermissions`, `readSteps`,
+  `readActivities`, `readNutrition`).
+- **Real on-device bug found and fixed**: the first version had
+  `lib/health/ios.ts`/`android.ts` as plain files, both imported
+  unconditionally by `sync.ts`, which picked between them with a
+  `Platform.OS` check *at call time*. That still meant both files got
+  *evaluated* on both platforms — and `ios.ts` read
+  `HealthPermission.StepCount` at module scope (not inside a function),
+  which crashed on Android with `TypeError: cannot read property
+  'StepCount' of undefined`, since `react-native-health` has no Android
+  native module at all and its `HealthPermission` export comes back
+  `undefined` there. (`android.ts` had the same latent bug in the other
+  direction via `ExerciseType` — just hadn't been hit yet.) Fixed by
+  renaming to `adapter.ios.ts` / `adapter.android.ts` / `adapter.ts`
+  (web/unsupported-platform fallback) and having `sync.ts` do a single
+  `import { healthAdapter } from './adapter'` — Metro's platform-extension
+  file resolution guarantees only *one* of the three ever gets bundled
+  into a given platform's build, so the wrong platform's native constants
+  are never touched, not even at import time. This is the standard React
+  Native pattern for platform-specific native modules; the original
+  Platform.OS-branch-at-call-time approach only protects against calling
+  the wrong platform's *functions*, not against evaluating its
+  module-level code.
+- `lib/health/adapter.ios.ts` — wraps `react-native-health` (MIT;
+  callback-based API predates the rest of this codebase's promise-based
+  native modules, so every function here is just that call wrapped in a
+  `Promise`). Reads `getDailyStepCountSamples`, `getAnchoredWorkouts`, and
+  `getCarbohydratesSamples`.
+- `lib/health/adapter.android.ts` — wraps `react-native-health-connect`
+  (MIT), a promise-native API (`initialize`/`requestPermission`/`readRecords`).
+  Reads the `Steps`, `ExerciseSession`, and `Nutrition` record types.
+  `ExerciseSessionRecord` carries no calorie field of its own (unlike
+  HealthKit's workout samples) — would need a correlated
+  `ActiveCaloriesBurned` query over the same window, not built for this
+  first pass, so imported Android activity rows never show calories
+  (iOS ones do, when the workout sample has them).
+- `lib/health/exerciseTypeLabel.ts` — humanizes Health Connect's
+  `ExerciseType` numeric-constant map (`{ BIKING_STATIONARY: 9, ... }`,
+  no matching label strings) into a display name by reversing the map and
+  title-casing the key, rather than hand-copying a ~80-entry name table
+  that would drift from the library's own list. Deliberately split out of
+  `adapter.android.ts` (which imports the real native module) so this
+  pure humanization logic can be unit tested without a native-module mock
+  — same protocol-logic-vs-native-orchestration split as
+  `lib/ble/racp.ts` vs. `lib/ble/bleGlucoseMeter.ts`.
+- `lib/health/sync.ts` — `syncHealthData()` is the one function every
+  caller shares (background task, Settings "Sync now" button, Logbook
+  pull-to-refresh), same "one function, every caller" reasoning as
+  `lib/tasks/insightTask.ts`'s `runInsightGeneration`. Pulls everything
+  since `Settings.healthLastSyncedAt` (or a bounded 7-day lookback on
+  first sync — not a new user's entire HealthKit history), persists via
+  `lib/db/health.ts`, then advances the timestamp.
+- `lib/db/health.ts` — three tables (`health_steps`, `health_activities`,
+  `health_nutrition`), `source` + `external_id` (the platform SDK's own
+  record identifier) as the dedup key, same approach as
+  `lib/db/glucoseReadings.ts` — a re-sync of an overlapping window never
+  double-inserts. 90-day retention, matching `glucose_readings`.
+- Background sync: `lib/tasks/healthSyncTask.ts`, hourly floor via the
+  same `expo-task-manager`/`expo-background-fetch` pattern as
+  `insightTask.ts` (OS treats the interval as a floor, not a promise; only
+  runs anything if `Settings.healthSyncEnabled` is true).
+- **Logbook**: `LogEntry` gained `'healthActivity'`/`'healthNutrition'`
+  kinds (`lib/logbookEntry.ts`) — imported workouts and carb entries show
+  up as their own rows, deletable but never editable (same treatment as
+  the `'glucose'` BLE-meter-reading kind: a device/third-party-reported
+  value isn't something to hand-edit). Deliberately *not* scoped by
+  source the way BLE glucose readings are scoped to `'ble'` — only one of
+  `healthkit`/`healthconnect` is ever populated on a given device (a
+  phone runs one OS, never both), and discrete workouts/meal entries are
+  naturally low-frequency, so there's no "continuous feed floods the
+  list" concern to filter out.
+- **Steps are deliberately not surfaced as their own Trends card or
+  Logbook rows** — a discrete daily aggregate doesn't fit the Logbook's
+  "here's an event" row shape, and a dedicated display was explicitly
+  decided against (though left open as a possible future design
+  decision). Steps are still synced and persisted like the other two —
+  they just don't render anywhere on their own today, only inside the AI
+  Insights payload below.
+- **AI Insights payload**: `lib/insights/insightPayload.ts`'s
+  `InsightPayload.importedHealthData` — `null` when Health sync isn't
+  enabled (same "distinguish no-data from genuinely zero" convention as
+  `overnightLowPct` elsewhere in that file), otherwise a summarized block
+  (daily step totals, activity session count/total minutes/distinct
+  types, nutrition entry count/total carb grams) covering the same
+  window as the rest of the payload. Summarized, not a raw per-record
+  dump — matches `treatmentsLogged`'s own level of detail, so the
+  payload doesn't grow unbounded with every synced record. This was an
+  explicit ask: the imported data should be something the AI-generated
+  insight can actually reference (e.g. noticing a workout pattern, or
+  carb entries from a nutrition app that don't have a matching bolus
+  logged) — informational commentary only, still nowhere near
+  `lib/oref/`.
+- Both `react-native-health` and `react-native-health-connect` are new
+  native modules — needs a dev-client rebuild (`npx expo run:ios` /
+  `npx expo run:android`), not just a JS reload, same as
+  `react-native-ble-plx` before it. `app.json` config: `react-native-health`'s
+  plugin sets the `NSHealthShareUsageDescription`/entitlements;
+  `react-native-health-connect`'s plugin wires the Android 14+
+  permission-rationale intent-filter/activity-alias into the manifest
+  (both handled automatically — no `MainActivity` edits needed in an
+  Expo-managed project, unlike the bare-RN-CLI instructions in that
+  library's own README). `android.permissions` also needs the three
+  `android.permission.health.*` entries by hand — Expo's permissions
+  plugin adds any literal string listed there, known Android permission
+  or not, so this reuses the same mechanism the Bluetooth permissions
+  already use rather than needing anything Health-Connect-specific.
+  HealthKit's iOS side additionally needs the HealthKit capability
+  enabled in the Apple Developer account / provisioning profile before an
+  EAS build can actually request permissions on-device — not something
+  this codebase can configure by itself.
+
 ## Local treatment database
 
 - `lib/db/treatments.ts` — expo-sqlite, one `treatments` table

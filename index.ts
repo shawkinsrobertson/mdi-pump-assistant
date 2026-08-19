@@ -9,6 +9,10 @@ import './lib/oref-vendor/polyfillProcessStreams';
 // once the app is actually opened.
 import './lib/tasks/insightTask';
 
+// Same reasoning as insightTask.ts above — registers the background
+// health-sync task definition unconditionally at module load.
+import './lib/tasks/healthSyncTask';
+
 import { registerRootComponent } from 'expo';
 
 import App from './App';

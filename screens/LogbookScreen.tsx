@@ -1,16 +1,26 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BleMeterModal } from '../components/BleMeterModal';
 import { LogbookEntryModal } from '../components/LogbookEntryModal';
 import { deleteActivity, getRecentActivities, type ActivityRecord } from '../lib/db/activities';
 import { deleteBasalDose, getRecentBasalDoses, type BasalDoseRecord } from '../lib/db/basalDoses';
 import { deleteReading, getRecentReadingsBySource } from '../lib/db/glucoseReadings';
+import {
+  deleteHealthActivity,
+  deleteHealthNutrition,
+  getRecentHealthActivities,
+  getRecentHealthNutrition,
+  type HealthActivityRecord,
+  type HealthNutritionRecord,
+} from '../lib/db/health';
 import { deleteNoteEntry, getRecentNoteEntries, type NoteEntryRecord } from '../lib/db/noteEntries';
 import { deleteTreatment, getRecentTreatments, type Treatment } from '../lib/db/treatments';
 import type { GlucoseReading } from '../lib/glucose';
 import { useGlucose } from '../lib/GlucoseContext';
+import { syncHealthData } from '../lib/health/sync';
 import { logEntryId, logEntryTime, type LogEntry } from '../lib/logbookEntry';
+import { useSettings } from '../lib/settings';
 import { useTheme } from '../lib/ThemeContext';
 
 const RECENT_COUNT = 50;
@@ -27,6 +37,8 @@ function mergeEntries(
   activities: ActivityRecord[],
   notes: NoteEntryRecord[],
   bleReadings: GlucoseReading[],
+  healthActivities: HealthActivityRecord[],
+  healthNutrition: HealthNutritionRecord[],
 ): LogEntry[] {
   const entries: LogEntry[] = [
     ...treatments.map((treatment): LogEntry => ({ kind: 'treatment', treatment })),
@@ -34,6 +46,8 @@ function mergeEntries(
     ...activities.map((activity): LogEntry => ({ kind: 'activity', activity })),
     ...notes.map((note): LogEntry => ({ kind: 'note', note })),
     ...bleReadings.map((reading): LogEntry => ({ kind: 'glucose', reading })),
+    ...healthActivities.map((record): LogEntry => ({ kind: 'healthActivity', record })),
+    ...healthNutrition.map((record): LogEntry => ({ kind: 'healthNutrition', record })),
   ];
   return entries.sort((a, b) => logEntryTime(b).localeCompare(logEntryTime(a)));
 }
@@ -77,6 +91,10 @@ function entryLabel(entry: LogEntry): string {
       return 'Note';
     case 'glucose':
       return 'Meter reading';
+    case 'healthActivity':
+      return entry.record.title;
+    case 'healthNutrition':
+      return 'Nutrition (imported)';
   }
 }
 
@@ -97,6 +115,15 @@ function entryDetail(entry: LogEntry): string {
       return entry.note.text;
     case 'glucose':
       return `${entry.reading.sgv} mg/dL`;
+    case 'healthActivity':
+      return [
+        entry.record.durationMinutes != null ? `${Math.round(entry.record.durationMinutes)} min` : null,
+        entry.record.calories != null ? `${Math.round(entry.record.calories)} cal` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    case 'healthNutrition':
+      return `${entry.record.carbsGrams} g carbs`;
   }
 }
 
@@ -130,15 +157,19 @@ export function LogbookScreen() {
   const { colors, spacing } = useTheme();
   const styles = useMemo(() => makeStyles(colors, spacing), [colors, spacing]);
   const { reportBleLiveReading, reportBleHistorySync } = useGlucose();
+  const [settings] = useSettings();
   const [treatments, setTreatments] = useState<Treatment[] | null>(null);
   const [basalDoses, setBasalDoses] = useState<BasalDoseRecord[] | null>(null);
   const [activities, setActivities] = useState<ActivityRecord[] | null>(null);
   const [notes, setNotes] = useState<NoteEntryRecord[] | null>(null);
   const [bleReadings, setBleReadings] = useState<GlucoseReading[] | null>(null);
+  const [healthActivities, setHealthActivities] = useState<HealthActivityRecord[] | null>(null);
+  const [healthNutrition, setHealthNutrition] = useState<HealthNutritionRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null);
   const [bleModalVisible, setBleModalVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const refetch = useCallback(() => {
     setError(null);
@@ -148,18 +179,42 @@ export function LogbookScreen() {
       getRecentActivities(RECENT_COUNT),
       getRecentNoteEntries(RECENT_COUNT),
       getRecentReadingsBySource(BLE_READING_SOURCE, RECENT_COUNT),
+      getRecentHealthActivities(RECENT_COUNT),
+      getRecentHealthNutrition(RECENT_COUNT),
     ])
-      .then(([treatmentRows, basalDoseRows, activityRows, noteRows, bleReadingRows]) => {
+      .then(([treatmentRows, basalDoseRows, activityRows, noteRows, bleReadingRows, healthActivityRows, healthNutritionRows]) => {
         setTreatments(treatmentRows);
         setBasalDoses(basalDoseRows);
         setActivities(activityRows);
         setNotes(noteRows);
         setBleReadings(bleReadingRows);
+        setHealthActivities(healthActivityRows);
+        setHealthNutrition(healthNutritionRows);
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : String(e));
       });
   }, []);
+
+  // Pull-to-refresh: syncs HealthKit/Health Connect first (when the
+  // person has it enabled — see Settings > Integrations), then always
+  // refetches every Logbook source, same as the background task and the
+  // Settings "Sync now" button share lib/health/sync.ts's syncHealthData()
+  // rather than each having their own copy. A sync failure here is
+  // swallowed (best-effort, same as the background task) rather than
+  // blocking the rest of the refresh — Settings > Integrations is where
+  // sync errors actually surface.
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      if (settings.healthSyncEnabled) {
+        await syncHealthData().catch((e) => console.error('Pull-to-refresh health sync failed:', e));
+      }
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch, settings.healthSyncEnabled]);
 
   // Refetch every time this tab gains focus (matches the old modal's
   // "refetch on open" behavior) rather than only once on mount, since
@@ -177,14 +232,26 @@ export function LogbookScreen() {
   );
 
   const loaded =
-    treatments !== null && basalDoses !== null && activities !== null && notes !== null && bleReadings !== null;
+    treatments !== null &&
+    basalDoses !== null &&
+    activities !== null &&
+    notes !== null &&
+    bleReadings !== null &&
+    healthActivities !== null &&
+    healthNutrition !== null;
 
   const filtered = useMemo(
     () =>
-      mergeEntries(treatments ?? [], basalDoses ?? [], activities ?? [], notes ?? [], bleReadings ?? []).filter((e) =>
-        matchesQuery(e, query),
-      ),
-    [treatments, basalDoses, activities, notes, bleReadings, query],
+      mergeEntries(
+        treatments ?? [],
+        basalDoses ?? [],
+        activities ?? [],
+        notes ?? [],
+        bleReadings ?? [],
+        healthActivities ?? [],
+        healthNutrition ?? [],
+      ).filter((e) => matchesQuery(e, query)),
+    [treatments, basalDoses, activities, notes, bleReadings, healthActivities, healthNutrition, query],
   );
 
   const handleDelete = useCallback(
@@ -204,6 +271,10 @@ export function LogbookScreen() {
                 await deleteActivity(entry.activity.id);
               } else if (entry.kind === 'glucose') {
                 await deleteReading(BLE_READING_SOURCE, entry.reading._id);
+              } else if (entry.kind === 'healthActivity') {
+                await deleteHealthActivity(entry.record.source, entry.record.externalId);
+              } else if (entry.kind === 'healthNutrition') {
+                await deleteHealthNutrition(entry.record.source, entry.record.externalId);
               } else {
                 await deleteNoteEntry(entry.note.id);
               }
@@ -246,6 +317,9 @@ export function LogbookScreen() {
       <SectionList
         sections={groupByDay(filtered)}
         keyExtractor={logEntryId}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.brand} />
+        }
         renderSectionHeader={({ section }) => (
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
@@ -261,7 +335,7 @@ export function LogbookScreen() {
             {entryDetail(item) !== '' && <Text style={styles.detail}>{entryDetail(item)}</Text>}
             {entryNotes(item) && <Text style={styles.noteText}>{entryNotes(item)}</Text>}
             <View style={styles.actionsRow}>
-              {item.kind !== 'glucose' && (
+              {item.kind !== 'glucose' && item.kind !== 'healthActivity' && item.kind !== 'healthNutrition' && (
                 <Pressable onPress={() => setEditingEntry(item)}>
                   <Text style={styles.actionLink}>Edit</Text>
                 </Pressable>
