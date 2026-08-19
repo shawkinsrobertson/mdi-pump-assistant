@@ -84,6 +84,20 @@ export async function getRecentNightscoutTreatments(limit: number): Promise<Nigh
   return rows.map(fromRow);
 }
 
+// For the AI Insights payload (lib/insights/buildInsightPayload.ts),
+// which needs "everything in the last windowDays" rather than "the most
+// recent N rows" — same reason lib/db/health.ts has
+// getHealthActivitiesSince alongside getRecentHealthActivities.
+export async function getNightscoutTreatmentsSince(sinceMs: number): Promise<NightscoutTreatmentRecord[]> {
+  const database = getDb();
+  const sinceIso = new Date(sinceMs).toISOString();
+  const rows = await database.getAllAsync<NightscoutTreatmentRow>(
+    `SELECT * FROM nightscout_treatments WHERE created_at >= ? ORDER BY created_at ASC`,
+    [sinceIso],
+  );
+  return rows.map(fromRow);
+}
+
 export async function deleteNightscoutTreatment(id: string): Promise<void> {
   const database = getDb();
   await database.runAsync(`DELETE FROM nightscout_treatments WHERE id = ?`, [id]);

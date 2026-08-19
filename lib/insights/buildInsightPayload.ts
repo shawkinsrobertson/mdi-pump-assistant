@@ -5,9 +5,11 @@
 import { getActivitiesSince } from '../db/activities';
 import { getReadingsSince } from '../db/glucoseReadings';
 import { getHealthActivitiesSince, getHealthNutritionSince, getStepsTotalsSince } from '../db/health';
+import { getNightscoutTreatmentsSince } from '../db/nightscoutTreatments';
 import { getRecentNoteEntries } from '../db/noteEntries';
 import { getTreatmentsSince } from '../db/treatments';
 import { computeInsightPayload, type InsightPayload } from './insightPayload';
+import { isNightscoutConfigured } from '../nightscout/sync';
 import { readSettings } from '../settings';
 import { windowStartMs } from '../trends/window';
 
@@ -26,19 +28,28 @@ export async function buildInsightPayload(now: Date = new Date()): Promise<Insig
   const sinceMs = windowStartMs(WINDOW_DAYS, now);
   const sinceIso = new Date(sinceMs).toISOString();
 
-  // Only actually queried when Health sync is enabled — an empty-array
-  // default when it's off, rather than hitting three more DB tables that
-  // will just be empty anyway (no sync ever having run).
-  const [glucoseReadings, treatments, activities, recentNotes, dailySteps, healthActivities, healthNutrition] =
-    await Promise.all([
-      getReadingsSince(sinceMs),
-      getTreatmentsSince(sinceIso),
-      getActivitiesSince(sinceIso),
-      getRecentNoteEntries(RECENT_NOTES_FETCH_COUNT),
-      settings.healthSyncEnabled ? getStepsTotalsSince(sinceMs) : Promise.resolve([]),
-      settings.healthSyncEnabled ? getHealthActivitiesSince(sinceMs) : Promise.resolve([]),
-      settings.healthSyncEnabled ? getHealthNutritionSince(sinceMs) : Promise.resolve([]),
-    ]);
+  // Health/Nightscout tables are only actually queried when each is
+  // configured — an empty-array default otherwise, rather than hitting
+  // DB tables that will just be empty anyway (no sync ever having run).
+  const [
+    glucoseReadings,
+    treatments,
+    activities,
+    recentNotes,
+    dailySteps,
+    healthActivities,
+    healthNutrition,
+    nightscoutTreatments,
+  ] = await Promise.all([
+    getReadingsSince(sinceMs),
+    getTreatmentsSince(sinceIso),
+    getActivitiesSince(sinceIso),
+    getRecentNoteEntries(RECENT_NOTES_FETCH_COUNT),
+    settings.healthSyncEnabled ? getStepsTotalsSince(sinceMs) : Promise.resolve([]),
+    settings.healthSyncEnabled ? getHealthActivitiesSince(sinceMs) : Promise.resolve([]),
+    settings.healthSyncEnabled ? getHealthNutritionSince(sinceMs) : Promise.resolve([]),
+    isNightscoutConfigured(settings) ? getNightscoutTreatmentsSince(sinceMs) : Promise.resolve([]),
+  ]);
   const notes = recentNotes.filter((n) => new Date(n.loggedAt).getTime() >= sinceMs);
 
   return computeInsightPayload({
@@ -54,5 +65,6 @@ export async function buildInsightPayload(now: Date = new Date()): Promise<Insig
     dailySteps,
     healthActivities,
     healthNutrition,
+    nightscoutTreatments,
   });
 }

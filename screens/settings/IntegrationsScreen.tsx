@@ -25,12 +25,13 @@ function formatLastSynced(iso: string | null): string {
 // Insights webhook URL (lib/tasks/insightTask.ts), HealthKit/Health
 // Connect sync (lib/health/sync.ts) — steps, activity, and nutrition
 // pulled in read-only, feeding the AI Insights payload
-// (lib/insights/insightPayload.ts) — and Nightscout (lib/nightscout/): a
-// remote glucose source alternative to xDrip+, plus reference-only
-// treatment rows in the Logbook. Nightscout treatments do NOT (yet) feed
-// the Insights payload the way Health data does — not built this cycle,
-// see AGENTS.md. Neither Health data nor Nightscout treatments ever
-// reach oref0's COB/IOB math either way.
+// (lib/insights/insightPayload.ts) as its own summarized block — and
+// Nightscout (lib/nightscout/): a remote glucose source alternative to
+// xDrip+, plus reference-only treatment rows in the Logbook that get
+// merged directly into the Insights payload's existing treatment counts
+// (not split into a separate block the way Health data is — see
+// insightPayload.ts's own comment for why). Neither Health data nor
+// Nightscout treatments ever reach oref0's COB/IOB math either way.
 export function IntegrationsScreen() {
   const { colors } = useTheme();
   const [settings, updateSettings, loaded] = useSettings();

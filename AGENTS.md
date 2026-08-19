@@ -584,12 +584,20 @@ Settings > Integrations.
   `'healthActivity'`/`'healthNutrition'`; "delete" removes the local
   cached copy, a re-sync could bring it back, same caveat as the Health
   data rows).
-- **Not done this cycle, deliberately**: Nightscout treatments don't
-  (yet) feed the AI Insights payload the way Health data's
-  `importedHealthData` does — a natural, low-risk follow-up given how
-  closely it parallels that precedent, but not built without confirming
-  scope first (see the Pump/MDI mode discussion below for why scope
-  discipline mattered this cycle specifically).
+- **AI Insights payload**: unlike Health data (its own separate
+  `importedHealthData` block, explicitly kept apart from local
+  `treatmentsLogged`), Nightscout treatments are **merged directly into
+  `treatmentsLogged`'s existing `carbEntries`/`insulinEntries` counts**,
+  not split out. This was a deliberate call after checking with the
+  person first (the original plan was a separate block, mirroring
+  Health data) — for a pump user, this app's own local `treatments`
+  table is normally empty (they treat from their pump, not this app) and
+  Nightscout is the actual treatment record, both manually-entered pump-
+  app boluses and automatic loop actions; for an MDI user it's the
+  reverse. Either way there's one real treatment history to report, not
+  two sources to reconcile or flag discrepancies between — merging is
+  the correct model here, not a simplification. See
+  `insightPayload.ts`'s own comment on `treatmentsLogged`.
 - **Deferred to its own future phase, not this cycle**: a "Pump" vs.
   "MDI" mode selector (Settings) was scoped in conversation but
   explicitly *not* built now. The distinction: pump users don't treat
