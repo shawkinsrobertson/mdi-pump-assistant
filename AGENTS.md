@@ -572,6 +572,44 @@ Settings > Integrations.
   tables have one — only one Nightscout instance is ever configured at a
   time, unlike xDrip+ vs. BLE vs. HealthKit vs. Health Connect all being
   live simultaneously). 90-day retention, matching the other tables.
+- **Real on-device bug found and fixed**: `created_at` was originally
+  stored as a passthrough TEXT column (Nightscout's own raw field value),
+  and `getNightscoutTreatmentsSince()` filtered it with SQL
+  `WHERE created_at >= ?` against a canonical `toISOString()` value.
+  Confirmed on-device: the AI Insights payload reported zero carb/insulin
+  entries for the week despite the Logbook showing real synced
+  treatments — because different Nightscout uploaders (AndroidAPS, Loop,
+  xDrip+, ...) don't all serialize `created_at` identically (some omit
+  milliseconds, some use a numeric timezone offset instead of `Z`), so a
+  plain string comparison silently mismatched rows that were genuinely
+  within the window. The Logbook never hit this because its own query
+  (`getRecentNightscoutTreatments`) doesn't filter by date at all, just
+  `ORDER BY ... LIMIT` — which is *also* comparing the same
+  inconsistently-formatted strings, just in a way that happened not to
+  visibly break for this person's data.
+  Every other table in this app avoids the whole class of bug by storing
+  epoch ms as an `INTEGER` (`glucose_readings.date`, `health.ts`'s
+  `start_time`/`logged_at`) instead of a passthrough string —
+  `nightscout_treatments` was the one place that didn't. Fixed two ways:
+  (1) `lib/nightscout/client.ts`'s `normalizeTreatment()` now
+  re-serializes `created_at` through `Date.parse()`/`toISOString()`
+  before it's ever stored, so newly-synced rows are always canonical
+  going forward (and a `created_at` that doesn't parse to a real date at
+  all is dropped rather than stored with a garbage timestamp); (2) every
+  date-range query in `lib/db/nightscoutTreatments.ts`
+  (`getRecentNightscoutTreatments`, `getNightscoutTreatmentsSince`, the
+  retention prune) now fetches the full table — small, a personal
+  treatment log, not glucose-reading volume — and filters/sorts using
+  real `Date.parse()` timestamps in JS, rather than trusting SQL string
+  comparison at all. (2) was the one that actually mattered for
+  already-synced rows already on someone's device: (1) alone only fixes
+  future syncs, and wouldn't have retroactively fixed data already
+  written with the old passthrough format, since the "since" cursor in
+  `getNightscoutTreatmentsSince` never re-fetches rows once they've
+  scrolled out of the sync window. A schema migration (adding a real
+  epoch-ms column) was considered and deliberately not done — real risk
+  to data already synced onto someone's device, with no way to test a
+  migration here.
 - `lib/nightscout/sync.ts` — `syncNightscoutTreatments()`, same "one
   function, every caller" shape as `lib/health/sync.ts`'s
   `syncHealthData()`: shared by the background task

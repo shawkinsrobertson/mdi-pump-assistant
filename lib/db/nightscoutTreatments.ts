@@ -32,7 +32,6 @@ function getDb(): SQLiteDatabase {
         created_at TEXT NOT NULL,
         notes TEXT
       );
-      CREATE INDEX IF NOT EXISTS idx_nightscout_treatments_created ON nightscout_treatments(created_at);
     `);
   }
   return db;
@@ -61,6 +60,46 @@ function fromRow(row: NightscoutTreatmentRow): NightscoutTreatmentRecord {
 // 90 days — matches glucose_readings/health.ts's retention window.
 const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
+// `created_at` comes straight from Nightscout's own field (lib/nightscout/client.ts),
+// whose exact string format isn't guaranteed consistent — different
+// uploaders (AndroidAPS, Loop, xDrip+, ...) format it differently (some
+// omit milliseconds, some use a numeric timezone offset instead of "Z").
+// Confirmed on-device: a SQL `WHERE created_at >= ?` string comparison
+// against a canonical toISOString() value silently mismatched real rows
+// — the Insights payload reported zero carb/insulin entries despite the
+// Logbook showing genuinely-synced treatments (the Logbook's own query
+// never compares dates, just `ORDER BY ... LIMIT`, so it never hit this).
+// Every other table in this app avoids the whole problem by storing
+// epoch ms as an INTEGER (glucose_readings.date, health.ts's
+// start_time/logged_at) instead of a passthrough string — this table is
+// the one place that didn't, and it's why. Rather than a schema
+// migration (real risk to data already synced onto people's devices,
+// with no way to test it here), every date-sensitive query below fetches
+// the (small, personal-treatment-log-sized) full table once and
+// filters/sorts using real `Date.parse()` timestamps in JS, which is
+// robust to whatever format Nightscout actually sent.
+async function getAllTreatments(): Promise<NightscoutTreatmentRecord[]> {
+  const database = getDb();
+  const rows = await database.getAllAsync<NightscoutTreatmentRow>(`SELECT * FROM nightscout_treatments`);
+  return rows.map(fromRow);
+}
+
+async function pruneOldTreatments(): Promise<void> {
+  const cutoffMs = Date.now() - RETENTION_MS;
+  const all = await getAllTreatments();
+  const staleIds = all.filter((t) => new Date(t.createdAt).getTime() < cutoffMs).map((t) => t.id);
+  if (staleIds.length === 0) return;
+  const database = getDb();
+  // SQLite defaults to a 999-bound-parameter limit per statement —
+  // chunked well under that. Unlikely to matter for a personal treatment
+  // log, but cheap insurance.
+  const CHUNK = 500;
+  for (let i = 0; i < staleIds.length; i += CHUNK) {
+    const chunk = staleIds.slice(i, i + CHUNK);
+    await database.runAsync(`DELETE FROM nightscout_treatments WHERE id IN (${chunk.map(() => '?').join(',')})`, chunk);
+  }
+}
+
 export async function insertNightscoutTreatments(treatments: NightscoutTreatment[]): Promise<void> {
   if (treatments.length === 0) return;
   const database = getDb();
@@ -71,17 +110,12 @@ export async function insertNightscoutTreatments(treatments: NightscoutTreatment
       [t.id, t.eventType, t.insulin, t.carbs, t.createdAt, t.notes],
     );
   }
-  const cutoffIso = new Date(Date.now() - RETENTION_MS).toISOString();
-  await database.runAsync(`DELETE FROM nightscout_treatments WHERE created_at < ?`, [cutoffIso]);
+  await pruneOldTreatments();
 }
 
 export async function getRecentNightscoutTreatments(limit: number): Promise<NightscoutTreatmentRecord[]> {
-  const database = getDb();
-  const rows = await database.getAllAsync<NightscoutTreatmentRow>(
-    `SELECT * FROM nightscout_treatments ORDER BY created_at DESC LIMIT ?`,
-    [limit],
-  );
-  return rows.map(fromRow);
+  const all = await getAllTreatments();
+  return all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, limit);
 }
 
 // For the AI Insights payload (lib/insights/buildInsightPayload.ts),
@@ -89,13 +123,10 @@ export async function getRecentNightscoutTreatments(limit: number): Promise<Nigh
 // recent N rows" — same reason lib/db/health.ts has
 // getHealthActivitiesSince alongside getRecentHealthActivities.
 export async function getNightscoutTreatmentsSince(sinceMs: number): Promise<NightscoutTreatmentRecord[]> {
-  const database = getDb();
-  const sinceIso = new Date(sinceMs).toISOString();
-  const rows = await database.getAllAsync<NightscoutTreatmentRow>(
-    `SELECT * FROM nightscout_treatments WHERE created_at >= ? ORDER BY created_at ASC`,
-    [sinceIso],
-  );
-  return rows.map(fromRow);
+  const all = await getAllTreatments();
+  return all
+    .filter((t) => new Date(t.createdAt).getTime() >= sinceMs)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
 export async function deleteNightscoutTreatment(id: string): Promise<void> {

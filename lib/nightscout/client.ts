@@ -45,16 +45,28 @@ export function normalizeEntry(raw: unknown): GlucoseReading | null {
   };
 }
 
+// createdAt is re-serialized through Date.parse()/toISOString(), not
+// passed through as-received — Nightscout's created_at format isn't
+// consistent across uploaders (AndroidAPS/Loop/xDrip+/etc. don't all
+// serialize timestamps identically: some omit milliseconds, some use a
+// numeric timezone offset instead of "Z"). Storing a canonical format
+// here keeps every date comparison downstream (lib/db/nightscoutTreatments.ts)
+// working regardless of what this particular server/uploader sent — see
+// that file for the on-device bug this was found from. A treatment whose
+// created_at doesn't parse to a real date at all is dropped rather than
+// stored with a garbage/NaN timestamp.
 export function normalizeTreatment(raw: unknown): NightscoutTreatment | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
   if (typeof r._id !== 'string' || typeof r.created_at !== 'string') return null;
+  const createdAtMs = Date.parse(r.created_at);
+  if (!Number.isFinite(createdAtMs)) return null;
   return {
     id: r._id,
     eventType: typeof r.eventType === 'string' ? r.eventType : null,
     insulin: typeof r.insulin === 'number' ? r.insulin : null,
     carbs: typeof r.carbs === 'number' ? r.carbs : null,
-    createdAt: r.created_at,
+    createdAt: new Date(createdAtMs).toISOString(),
     notes: typeof r.notes === 'string' ? r.notes : null,
   };
 }
