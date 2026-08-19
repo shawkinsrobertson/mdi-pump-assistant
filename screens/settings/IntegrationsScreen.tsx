@@ -2,12 +2,18 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { Card } from '../../components/ui/Card';
 import { isHealthSyncSupported, requestHealthPermissions, syncHealthData } from '../../lib/health/sync';
-import { readSettings, useSettings } from '../../lib/settings';
+import { isNightscoutConfigured, syncNightscoutTreatments } from '../../lib/nightscout/sync';
+import { readSettings, useSettings, type GlucoseSource } from '../../lib/settings';
 import { useTheme } from '../../lib/ThemeContext';
 import { SettingsField } from './SettingsField';
 import { useSettingsStyles } from './useSettingsStyles';
 
-const PLANNED = ['Continuous glucose monitors', 'Glucose meters', 'Smart pens', 'Nightscout'];
+const PLANNED = ['Continuous glucose monitors', 'Glucose meters', 'Smart pens'];
+
+const GLUCOSE_SOURCES: { value: GlucoseSource; label: string }[] = [
+  { value: 'xdrip', label: 'xDrip+' },
+  { value: 'nightscout', label: 'Nightscout' },
+];
 
 function formatLastSynced(iso: string | null): string {
   if (!iso) return 'Never synced';
@@ -15,13 +21,16 @@ function formatLastSynced(iso: string | null): string {
 }
 
 // Direct device integrations are still "coming soon" (see PLANNED
-// below), but this screen also hosts two real integrations: the AI
-// Insights webhook URL (lib/tasks/insightTask.ts) and HealthKit/Health
+// below), but this screen also hosts three real integrations: the AI
+// Insights webhook URL (lib/tasks/insightTask.ts), HealthKit/Health
 // Connect sync (lib/health/sync.ts) — steps, activity, and nutrition
-// pulled in read-only. Activity/nutrition also get their own Logbook
-// rows, and all three feed the AI Insights payload (lib/insights/insightPayload.ts)
-// so the model can reference them — but none of it ever reaches oref0's
-// COB/IOB math (see AGENTS.md).
+// pulled in read-only, feeding the AI Insights payload
+// (lib/insights/insightPayload.ts) — and Nightscout (lib/nightscout/): a
+// remote glucose source alternative to xDrip+, plus reference-only
+// treatment rows in the Logbook. Nightscout treatments do NOT (yet) feed
+// the Insights payload the way Health data does — not built this cycle,
+// see AGENTS.md. Neither Health data nor Nightscout treatments ever
+// reach oref0's COB/IOB math either way.
 export function IntegrationsScreen() {
   const { colors } = useTheme();
   const [settings, updateSettings, loaded] = useSettings();
@@ -31,18 +40,65 @@ export function IntegrationsScreen() {
   const [healthBusy, setHealthBusy] = useState<'permissions' | 'sync' | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [healthStatus, setHealthStatus] = useState<string | null>(null);
+  const [nsUrl, setNsUrl] = useState('');
+  const [nsToken, setNsToken] = useState('');
+  const [nsBusy, setNsBusy] = useState(false);
+  const [nsError, setNsError] = useState<string | null>(null);
+  const [nsStatus, setNsStatus] = useState<string | null>(null);
 
   const healthSupported = isHealthSyncSupported();
+  const nightscoutConfigured = isNightscoutConfigured(settings);
 
   useEffect(() => {
     if (!loaded) return;
     setWebhookUrl(settings.insightsWebhookUrl ?? '');
+    setNsUrl(settings.nightscoutUrl ?? '');
+    setNsToken(settings.nightscoutToken ?? '');
   }, [loaded, settings]);
 
   const handleSave = () => {
     updateSettings({ ...settings, insightsWebhookUrl: webhookUrl.trim() || null });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleSaveNightscout = () => {
+    const nextUrl = nsUrl.trim() || null;
+    const nextToken = nsToken.trim() || null;
+    updateSettings({
+      ...settings,
+      nightscoutUrl: nextUrl,
+      nightscoutToken: nextToken,
+      // Falls back to xDrip+ if the currently-active Nightscout source
+      // just got un-configured (a cleared field), rather than leaving
+      // glucoseSource pointed at a source with nothing to poll.
+      glucoseSource: settings.glucoseSource === 'nightscout' && !(nextUrl && nextToken) ? 'xdrip' : settings.glucoseSource,
+    });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleSelectGlucoseSource = (glucoseSource: GlucoseSource) => {
+    if (glucoseSource === 'nightscout' && !nightscoutConfigured) return; // toggle itself is disabled below; belt-and-suspenders
+    updateSettings({ ...settings, glucoseSource });
+  };
+
+  const handleSyncNightscoutNow = async () => {
+    setNsBusy(true);
+    setNsError(null);
+    setNsStatus(null);
+    try {
+      const result = await syncNightscoutTreatments();
+      // Same reasoning as handleSyncNow below: re-read rather than compute
+      // nightscoutLastSyncedAt locally, so this screen shows exactly what
+      // syncNightscoutTreatments() actually persisted.
+      updateSettings(await readSettings());
+      setNsStatus(`Synced ${result.treatments} treatment${result.treatments === 1 ? '' : 's'}.`);
+    } catch (e) {
+      setNsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setNsBusy(false);
+    }
   };
 
   const handleToggleHealthSync = (healthSyncEnabled: boolean) => {
@@ -117,6 +173,84 @@ export function IntegrationsScreen() {
       <Pressable style={styles.button} onPress={handleSave}>
         <Text style={styles.buttonText}>Save</Text>
       </Pressable>
+
+      <Card style={[styles.card, { marginTop: 16 }]}>
+        <Text style={styles.cardTitle}>Nightscout</Text>
+        <Text style={styles.hint}>
+          Connects to a remote Nightscout instance. Glucose readings can replace xDrip+ as your live CGM source
+          below, and treatments (boluses/carbs logged there — e.g. by a pump's closed-loop system, or another app)
+          show up in the Logbook for reference. Nightscout treatments never count toward COB or bolus-wizard
+          suggestions.
+        </Text>
+        <SettingsField
+          label="Nightscout URL"
+          value={nsUrl}
+          onChangeText={setNsUrl}
+          keyboardType="url"
+          placeholder="https://your-nightscout.example.com"
+          autoCapitalize="none"
+        />
+        <SettingsField
+          label="API token"
+          value={nsToken}
+          onChangeText={setNsToken}
+          keyboardType="default"
+          placeholder="token"
+          autoCapitalize="none"
+          secureTextEntry
+          last
+        />
+      </Card>
+
+      <Pressable style={styles.button} onPress={handleSaveNightscout}>
+        <Text style={styles.buttonText}>Save</Text>
+      </Pressable>
+
+      <Card style={[styles.card, { marginTop: 16 }]}>
+        <Text style={styles.cardTitle}>Glucose source</Text>
+        <Text style={styles.hint}>
+          Which live feed drives the Dashboard's current BG, chart, and COB/IOB predictions. Only one at a time —
+          xDrip+ and Nightscout typically mirror the same underlying sensor data, so running both would
+          double-count the same readings rather than combine them.
+        </Text>
+        <View style={styles.toggleRow}>
+          {GLUCOSE_SOURCES.map((source) => {
+            const disabled = source.value === 'nightscout' && !nightscoutConfigured;
+            const active = settings.glucoseSource === source.value;
+            return (
+              <Pressable
+                key={source.value}
+                style={[styles.toggleButton, active && styles.toggleButtonActive, disabled && styles.buttonDisabled]}
+                disabled={disabled}
+                onPress={() => handleSelectGlucoseSource(source.value)}
+              >
+                <Text style={[styles.toggleText, active && styles.toggleTextActive]}>{source.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {!nightscoutConfigured && (
+          <Text style={[styles.hint, { marginTop: 8, marginBottom: 0 }]}>
+            Set your Nightscout URL and token above, then save, to enable it as a glucose source.
+          </Text>
+        )}
+      </Card>
+
+      {nightscoutConfigured && (
+        <Card style={[styles.card, { marginTop: 16 }]}>
+          <Text style={styles.cardTitle}>Nightscout treatments sync</Text>
+          <Text style={[styles.hint, { marginBottom: 12 }]}>{formatLastSynced(settings.nightscoutLastSyncedAt)}</Text>
+          {nsStatus && <Text style={[styles.hint, { color: colors.status.success }]}>{nsStatus}</Text>}
+          {nsError && <Text style={[styles.hint, { color: colors.status.danger }]}>{nsError}</Text>}
+          <Pressable
+            style={[styles.button, nsBusy && styles.buttonDisabled]}
+            disabled={nsBusy}
+            onPress={handleSyncNightscoutNow}
+          >
+            <Text style={styles.buttonText}>{nsBusy ? 'Syncing…' : 'Sync now'}</Text>
+          </Pressable>
+        </Card>
+      )}
 
       <Card style={[styles.card, { marginTop: 16 }]}>
         <View style={[styles.rowBetween, { marginBottom: 8 }]}>

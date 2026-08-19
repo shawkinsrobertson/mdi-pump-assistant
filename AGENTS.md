@@ -496,6 +496,118 @@ Settings > Integrations > Health sync (off by default).
   EAS build can actually request permissions on-device — not something
   this codebase can configure by itself.
 
+## Nightscout connectivity
+
+Direct REST connectivity to a person's own remote Nightscout instance —
+distinct from the web version's approach, which never talked to
+Nightscout directly at all (see below). Two things: glucose entries as an
+alternative live CGM source to xDrip+, and treatments as reference-only
+Logbook rows. Opt-in — nothing happens until a URL/token are entered in
+Settings > Integrations.
+
+- **What "bring back Nightscout connectivity" from the web app actually
+  meant, on inspection**: the web version's Dashboard/Logbook never
+  called Nightscout's REST API directly — they POSTed to an n8n webhook,
+  which called Nightscout (and an LLM) server-side and returned a fully
+  computed answer. `nightscoutUrl`/`nightscoutToken` settings fields and
+  a `treatmentsUrl()` helper existed in that codebase but were never
+  actually wired to any fetch — dead scaffolding. Since this app already
+  has its own full local oref0 pipeline, it doesn't need n8n's computed
+  answer — what transfers over is a **direct Nightscout data source**,
+  feeding the same local pipeline xDrip+/BLE already feed, not a revival
+  of the n8n dependency.
+- **Safety-critical scope decision, made explicit before any of this was
+  built**: Nightscout treatments are reference-only, same as HealthKit/
+  Health Connect data — they show up in the Logbook but never reach
+  oref0's COB/IOB math. This was an explicit, deliberate choice (not an
+  oversight) even though Nightscout treatments are a different trust tier
+  than a fitness app's carb estimate (they're often genuinely
+  already-given insulin/carbs, e.g. logged by a caregiver or another
+  app) — kept conservative and consistent with the Health data
+  precedent rather than special-cased.
+- **Glucose source is a single mutually-exclusive choice, not two
+  independent toggles** (Settings.glucoseSource, `'xdrip' | 'nightscout'`,
+  lib/settings.ts) — this was almost built as two independent enable
+  switches before working through the actual mechanics: the
+  glucose_readings dedup key is namespaced by source
+  (`${source}:${reading._id}`), so xDrip+ and Nightscout running
+  simultaneously would NOT deduplicate against each other. Since xDrip+
+  very commonly uploads to the exact same Nightscout instance a person
+  would configure here, running both would double-ingest one real
+  glucose curve under two different id schemes — visibly doubled chart
+  density, and a real risk to oref0's momentum/deviation math, which
+  assumes one clean time series. A single-choice setting sidesteps the
+  problem entirely rather than trying to detect/merge duplicates after
+  the fact (which would need timestamp+value heuristic matching, since
+  there's no shared id to key on).
+- `lib/nightscout/client.ts` — `fetchNightscoutEntries`/`fetchNightscoutTreatments`
+  against `/api/v1/entries/sgv.json` and `/api/v1/treatments.json`,
+  `?token=` query-param auth (a modern Nightscout read-only role token,
+  not the legacy full-access `API-SECRET` header). `GlucoseReading`
+  (lib/glucose.ts) already matches Nightscout's own entry shape — it was
+  modeled on it from the start, since xDrip+'s local server mimics the
+  same API — so entries need almost no transformation, just defensive
+  parsing (`normalizeEntry`/`normalizeTreatment`, unit tested) since
+  responses come from a real third-party server this app doesn't
+  control, unlike xDrip+'s tightly-coupled local one. Treatment date
+  filtering uses Nightscout's own Mongo-query-shaped REST syntax
+  (`find[created_at][$gte]=<ISO>`).
+  Distinct from — and NOT a refactor of — `lib/importers/nightscout.ts`,
+  a pre-existing one-off dev-seeding tool (explicitly documented there as
+  "NOT the v1 import feature") that parses static JSON exports for
+  local testing, with different semantics (imported treatments become
+  real local `treatments` rows, for realistic seed data).
+- `lib/GlucoseContext.tsx` — `fetchReading()` now branches on
+  `Settings.glucoseSource` instead of always hitting xDrip+'s local
+  server; `XdripStatus`/`xdripStatus`/`xdripError` were renamed to the
+  source-agnostic `CgmStatus`/`cgmStatus`/`cgmError` (and Dashboard's
+  error copy became source-aware) since they no longer only ever mean
+  xDrip+. Nightscout mode with an unconfigured URL/token surfaces as the
+  existing `'error'` status with a specific message, rather than a new
+  status value or a silent fallback to xDrip+ — a source explicitly
+  selected but not configured should say so, not quietly substitute
+  something else.
+- `lib/db/nightscoutTreatments.ts` — one table, deduped by Nightscout's
+  own `_id` alone (no `source` column the way `glucose_readings`/health
+  tables have one — only one Nightscout instance is ever configured at a
+  time, unlike xDrip+ vs. BLE vs. HealthKit vs. Health Connect all being
+  live simultaneously). 90-day retention, matching the other tables.
+- `lib/nightscout/sync.ts` — `syncNightscoutTreatments()`, same "one
+  function, every caller" shape as `lib/health/sync.ts`'s
+  `syncHealthData()`: shared by the background task
+  (`lib/tasks/nightscoutSyncTask.ts`, hourly), Settings "Sync now", and
+  Logbook pull-to-refresh (which now syncs both Health data and
+  Nightscout treatments in parallel when each is configured/enabled,
+  before refetching).
+- **Logbook**: `LogEntry` gained a `'nightscoutTreatment'` kind
+  (deletable, not editable — same treatment as `'glucose'`/
+  `'healthActivity'`/`'healthNutrition'`; "delete" removes the local
+  cached copy, a re-sync could bring it back, same caveat as the Health
+  data rows).
+- **Not done this cycle, deliberately**: Nightscout treatments don't
+  (yet) feed the AI Insights payload the way Health data's
+  `importedHealthData` does — a natural, low-risk follow-up given how
+  closely it parallels that precedent, but not built without confirming
+  scope first (see the Pump/MDI mode discussion below for why scope
+  discipline mattered this cycle specifically).
+- **Deferred to its own future phase, not this cycle**: a "Pump" vs.
+  "MDI" mode selector (Settings) was scoped in conversation but
+  explicitly *not* built now. The distinction: pump users don't treat
+  from this app at all (their pump/closed-loop system is the source of
+  truth, uploaded to Nightscout) — for them, this app would eventually
+  become a **pure display** layer showing whatever IOB/COB the pump's own
+  closed-loop system (AndroidAPS/Loop/OpenAPS) already computed and
+  uploaded to Nightscout's `devicestatus`, not a second oref0 pipeline
+  (explicitly ruled out — this app runs exactly one algorithm, the MDI
+  fork, for MDI users only). Pump mode would also hide the MDI-specific
+  dosing UI (Bolus Wizard, manual Insulin/Carbs Quick Log, Basal
+  Schedule, basal reminders) entirely, and the Logbook would become a
+  read-only mirror of Nightscout rather than "things logged in this
+  app." None of that is built — this cycle's Nightscout work
+  (glucose-source toggle, reference-only treatments) is deliberately
+  written to be forward-compatible with a mode selector landing later,
+  not to assume one.
+
 ## Local treatment database
 
 - `lib/db/treatments.ts` — expo-sqlite, one `treatments` table

@@ -19,6 +19,7 @@ import { getRecentTreatments } from '../lib/db/treatments';
 import { useGlucose } from '../lib/GlucoseContext';
 import { arrowForDirection, bgColor, formatDelta, formatMinutesAgo, isStale } from '../lib/glucose';
 import { usePrediction } from '../lib/oref/usePrediction';
+import { glucoseSourceLabel } from '../lib/settings';
 import { BASAL_REMINDER_DATA_TYPE } from '../lib/tasks/basalReminders';
 import { quickActionStyle } from '../lib/theme';
 import { useTheme } from '../lib/ThemeContext';
@@ -38,7 +39,8 @@ const CHART_WINDOWS_HOURS = [3, 6, 12, 24] as const;
 const PREDICTION_HORIZON_POINTS = 12; // 12 * 5min = 60 minutes past predBGs[0]
 
 export function DashboardScreen() {
-  const { current, xdripStatus, xdripError } = useGlucose();
+  const { current, glucoseSource, cgmStatus, cgmError } = useGlucose();
+  const sourceLabel = glucoseSourceLabel(glucoseSource);
   const { colors, spacing, iconSize, fontScale, display } = useTheme();
   const styles = useMemo(() => makeStyles(colors, spacing, fontScale), [colors, spacing, fontScale]);
 
@@ -185,7 +187,7 @@ export function DashboardScreen() {
           )}
         </View>
 
-        {current === null && xdripStatus === 'loading' && <ActivityIndicator size="large" color={colors.text.label} />}
+        {current === null && cgmStatus === 'loading' && <ActivityIndicator size="large" color={colors.text.label} />}
 
         {current !== null && (
           <>
@@ -224,24 +226,28 @@ export function DashboardScreen() {
           </>
         )}
 
-        {current === null && xdripStatus === 'no-data' && (
-          <Text style={styles.message}>No recent CGM data from xDrip+.</Text>
+        {current === null && cgmStatus === 'no-data' && (
+          <Text style={styles.message}>No recent CGM data from {sourceLabel}.</Text>
         )}
 
-        {current === null && xdripStatus === 'error' && (
+        {current === null && cgmStatus === 'error' && (
           <>
-            <Text style={styles.error}>Failed to reach xDrip+</Text>
-            <Text style={styles.errorDetail}>{xdripError}</Text>
-            <Text style={styles.hint}>
-              If this URL works in the phone browser but not here, check that
-              usesCleartextTraffic is enabled in app.json and rebuild the dev
-              client.
-            </Text>
+            <Text style={styles.error}>Failed to reach {sourceLabel}</Text>
+            <Text style={styles.errorDetail}>{cgmError}</Text>
+            {glucoseSource === 'xdrip' && (
+              <Text style={styles.hint}>
+                If this URL works in the phone browser but not here, check that
+                usesCleartextTraffic is enabled in app.json and rebuild the dev
+                client.
+              </Text>
+            )}
           </>
         )}
 
-        {current !== null && xdripStatus === 'error' && (
-          <Text style={styles.xdripNote}>xDrip+ poll failing: {xdripError}</Text>
+        {current !== null && cgmStatus === 'error' && (
+          <Text style={styles.cgmNote}>
+            {sourceLabel} poll failing: {cgmError}
+          </Text>
         )}
       </Card>
 
@@ -503,7 +509,7 @@ function makeStyles(
       textAlign: 'center',
       lineHeight: 18,
     },
-    xdripNote: {
+    cgmNote: {
       fontSize: 12 * fontScale,
       color: colors.status.danger,
       textAlign: 'center',

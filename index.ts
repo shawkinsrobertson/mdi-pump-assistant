@@ -13,6 +13,10 @@ import './lib/tasks/insightTask';
 // health-sync task definition unconditionally at module load.
 import './lib/tasks/healthSyncTask';
 
+// Same reasoning again — registers the background Nightscout-treatments-
+// sync task definition unconditionally at module load.
+import './lib/tasks/nightscoutSyncTask';
+
 import { registerRootComponent } from 'expo';
 
 import App from './App';
