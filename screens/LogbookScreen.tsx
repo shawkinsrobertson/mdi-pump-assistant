@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, RefreshControl, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -57,7 +58,16 @@ function mergeEntries(
     ...healthNutrition.map((record): LogEntry => ({ kind: 'healthNutrition', record })),
     ...nightscoutTreatments.map((record): LogEntry => ({ kind: 'nightscoutTreatment', record })),
   ];
-  return entries.sort((a, b) => logEntryTime(b).localeCompare(logEntryTime(a)));
+  // A closed-loop system (AndroidAPS/Loop/etc.) uploads its own Temp Basal
+  // adjustments to Nightscout continuously — background algorithm activity
+  // this app never drives (MDI users take a fixed daily long-acting dose;
+  // see Settings > Account and Profile > Basal Schedule), not something
+  // worth a Logbook row. Dropped unconditionally rather than left for the
+  // person to filter out themselves every time.
+  const withoutTempBasal = entries.filter(
+    (e) => !(e.kind === 'nightscoutTreatment' && e.record.eventType === 'Temp Basal'),
+  );
+  return withoutTempBasal.sort((a, b) => logEntryTime(b).localeCompare(logEntryTime(a)));
 }
 
 function dayLabel(date: Date, today: Date): string {
@@ -68,18 +78,80 @@ function dayLabel(date: Date, today: Date): string {
   return date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-// Entries already arrive sorted newest-first (mergeEntries); grouping
-// preserves that order across day boundaries.
-function groupByDay(entries: LogEntry[]): { title: string; data: LogEntry[] }[] {
-  const now = new Date();
-  const sections: { title: string; data: LogEntry[] }[] = [];
+// A synthetic Logbook row grouping a Nightscout "Correction Bolus" burst
+// within one calendar hour into a single collapsible card — see
+// groupSmbEntries below. This is purely a rendering concern of this
+// screen (not a persisted concept), so it lives here rather than in
+// lib/logbookEntry.ts's LogEntry union.
+interface SmbGroupRow {
+  kind: 'smbGroup';
+  hourKey: string; // e.g. "2026-7-28-14" — stable per calendar hour
+  hourStart: number; // epoch ms of the hour's start, for the card's label
+  entries: NightscoutTreatmentRecord[]; // newest-first, same as everything else
+}
+
+type LogRow = LogEntry | SmbGroupRow;
+
+function rowId(row: LogRow): string {
+  return row.kind === 'smbGroup' ? `smbGroup:${row.hourKey}` : logEntryId(row);
+}
+
+function rowTime(row: LogRow): string {
+  return row.kind === 'smbGroup' ? row.entries[0].createdAt : logEntryTime(row);
+}
+
+// Nightscout "Correction Bolus" entries are grouped one card per calendar
+// hour — per the person's own domain framing, a Nightscout correction
+// bolus *is* what's meant by "SMB" here (a closed-loop system can upload
+// several an hour, which would otherwise flood the Logbook with
+// near-identical rows). This app doesn't currently ingest the isSMB/
+// automatic flag some uploaders send, so eventType is the only signal
+// available — every other kind (including this app's own locally-logged
+// Correction Bolus treatments) passes through ungrouped.
+function groupSmbEntries(entries: LogEntry[]): LogRow[] {
+  const other: LogEntry[] = [];
+  const buckets = new Map<string, NightscoutTreatmentRecord[]>();
+  const bucketOrder: string[] = [];
   for (const entry of entries) {
-    const label = dayLabel(new Date(logEntryTime(entry)), now);
+    if (entry.kind === 'nightscoutTreatment' && entry.record.eventType === 'Correction Bolus') {
+      const created = new Date(entry.record.createdAt);
+      const hourKey = `${created.getFullYear()}-${created.getMonth()}-${created.getDate()}-${created.getHours()}`;
+      if (!buckets.has(hourKey)) {
+        buckets.set(hourKey, []);
+        bucketOrder.push(hourKey);
+      }
+      buckets.get(hourKey)!.push(entry.record);
+    } else {
+      other.push(entry);
+    }
+  }
+  const groups: SmbGroupRow[] = bucketOrder.map((hourKey) => {
+    const groupEntries = buckets.get(hourKey)!;
+    const created = new Date(groupEntries[0].createdAt);
+    const hourStart = new Date(
+      created.getFullYear(),
+      created.getMonth(),
+      created.getDate(),
+      created.getHours(),
+    ).getTime();
+    return { kind: 'smbGroup', hourKey, hourStart, entries: groupEntries };
+  });
+  const rows: LogRow[] = [...other, ...groups];
+  return rows.sort((a, b) => rowTime(b).localeCompare(rowTime(a)));
+}
+
+// Rows already arrive sorted newest-first (mergeEntries + groupSmbEntries);
+// grouping preserves that order across day boundaries.
+function groupByDay(rows: LogRow[]): { title: string; data: LogRow[] }[] {
+  const now = new Date();
+  const sections: { title: string; data: LogRow[] }[] = [];
+  for (const row of rows) {
+    const label = dayLabel(new Date(rowTime(row)), now);
     const last = sections[sections.length - 1];
     if (last && last.title === label) {
-      last.data.push(entry);
+      last.data.push(row);
     } else {
-      sections.push({ title: label, data: [entry] });
+      sections.push({ title: label, data: [row] });
     }
   }
   return sections;
@@ -284,18 +356,30 @@ export function LogbookScreen() {
     healthNutrition !== null &&
     nightscoutTreatments !== null;
 
+  const [expandedSmbGroups, setExpandedSmbGroups] = useState<Set<string>>(new Set());
+  const toggleSmbGroup = useCallback((hourKey: string) => {
+    setExpandedSmbGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(hourKey)) next.delete(hourKey);
+      else next.add(hourKey);
+      return next;
+    });
+  }, []);
+
   const filtered = useMemo(
     () =>
-      mergeEntries(
-        treatments ?? [],
-        basalDoses ?? [],
-        activities ?? [],
-        notes ?? [],
-        bleReadings ?? [],
-        healthActivities ?? [],
-        healthNutrition ?? [],
-        nightscoutTreatments ?? [],
-      ).filter((e) => matchesQuery(e, query)),
+      groupSmbEntries(
+        mergeEntries(
+          treatments ?? [],
+          basalDoses ?? [],
+          activities ?? [],
+          notes ?? [],
+          bleReadings ?? [],
+          healthActivities ?? [],
+          healthNutrition ?? [],
+          nightscoutTreatments ?? [],
+        ).filter((e) => matchesQuery(e, query)),
+      ),
     [
       treatments,
       basalDoses,
@@ -373,7 +457,8 @@ export function LogbookScreen() {
 
       <SectionList
         sections={groupByDay(filtered)}
-        keyExtractor={logEntryId}
+        keyExtractor={rowId}
+        stickySectionHeadersEnabled
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.brand} />
         }
@@ -383,26 +468,70 @@ export function LogbookScreen() {
             <View style={styles.sectionRule} />
           </View>
         )}
-        renderItem={({ item }) => (
-          <View style={styles.row}>
-            <View style={styles.rowHeader}>
-              <Text style={styles.eventType}>{entryLabel(item)}</Text>
-              <Text style={styles.time}>{new Date(logEntryTime(item)).toLocaleString()}</Text>
-            </View>
-            {entryDetail(item) !== '' && <Text style={styles.detail}>{entryDetail(item)}</Text>}
-            {entryNotes(item) && <Text style={styles.noteText}>{entryNotes(item)}</Text>}
-            <View style={styles.actionsRow}>
-              {!IMPORTED_KINDS.has(item.kind) && (
-                <Pressable onPress={() => setEditingEntry(item)}>
-                  <Text style={styles.actionLink}>Edit</Text>
+        renderItem={({ item }) => {
+          if (item.kind === 'smbGroup') {
+            const expanded = expandedSmbGroups.has(item.hourKey);
+            const totalInsulin = item.entries.reduce((sum, e) => sum + (e.insulin ?? 0), 0);
+            const hourLabel = new Date(item.hourStart).toLocaleTimeString(undefined, {
+              hour: 'numeric',
+              minute: '2-digit',
+            });
+            return (
+              <View style={styles.row}>
+                <Pressable onPress={() => toggleSmbGroup(item.hourKey)} style={styles.rowHeader}>
+                  <Text style={styles.eventType}>
+                    {item.entries.length} SMB{item.entries.length === 1 ? '' : 's'} — {hourLabel}
+                  </Text>
+                  <Ionicons
+                    name={expanded ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color={colors.text.tertiary}
+                  />
                 </Pressable>
-              )}
-              <Pressable onPress={() => handleDelete(item)}>
-                <Text style={[styles.actionLink, styles.deleteLink]}>Delete</Text>
-              </Pressable>
+                {totalInsulin > 0 && <Text style={styles.detail}>{totalInsulin.toFixed(2)} U total</Text>}
+                {expanded && (
+                  <View style={styles.smbSubList}>
+                    {item.entries.map((record) => (
+                      <View key={record.id} style={styles.smbSubRow}>
+                        <View style={styles.rowHeader}>
+                          <Text style={styles.smbSubLabel}>SMB</Text>
+                          <Text style={styles.time}>{new Date(record.createdAt).toLocaleString()}</Text>
+                        </View>
+                        {record.insulin != null && <Text style={styles.detail}>{record.insulin} U</Text>}
+                        {record.notes && <Text style={styles.noteText}>{record.notes}</Text>}
+                        <View style={styles.actionsRow}>
+                          <Pressable onPress={() => handleDelete({ kind: 'nightscoutTreatment', record })}>
+                            <Text style={[styles.actionLink, styles.deleteLink]}>Delete</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            );
+          }
+          return (
+            <View style={styles.row}>
+              <View style={styles.rowHeader}>
+                <Text style={styles.eventType}>{entryLabel(item)}</Text>
+                <Text style={styles.time}>{new Date(logEntryTime(item)).toLocaleString()}</Text>
+              </View>
+              {entryDetail(item) !== '' && <Text style={styles.detail}>{entryDetail(item)}</Text>}
+              {entryNotes(item) && <Text style={styles.noteText}>{entryNotes(item)}</Text>}
+              <View style={styles.actionsRow}>
+                {!IMPORTED_KINDS.has(item.kind) && (
+                  <Pressable onPress={() => setEditingEntry(item)}>
+                    <Text style={styles.actionLink}>Edit</Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={() => handleDelete(item)}>
+                  <Text style={[styles.actionLink, styles.deleteLink]}>Delete</Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
-        )}
+          );
+        }}
         contentContainerStyle={styles.listContent}
       />
 
@@ -489,6 +618,22 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], spacing: Retu
     rowHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    smbSubList: {
+      marginTop: spacing.sm,
+      paddingLeft: spacing.base,
+      borderLeftWidth: 2,
+      borderLeftColor: colors.border.subtle,
+      gap: spacing.sm,
+    },
+    smbSubRow: {
+      paddingVertical: 6,
+    },
+    smbSubLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.text.secondary,
     },
     eventType: {
       fontSize: 15,
