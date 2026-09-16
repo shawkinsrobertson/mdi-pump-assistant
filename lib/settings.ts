@@ -36,6 +36,10 @@ export function glucoseSourceLabel(source: GlucoseSource): string {
 // their own ISF/ICR/target/DIA). penIncrement is a UX rounding
 // convenience, not a clinical parameter, so it gets a real default.
 export interface Settings {
+  // Display-only — used for the Dashboard's "Welcome, {name}" greeting.
+  // Not a clinical field, so unlike isf/carbRatio/etc. below it's fine to
+  // ship null (falls back to "User") rather than requiring entry.
+  name: string | null;
   isf: number | null;
   carbRatio: number | null;
   targetBG: number | null;
@@ -91,6 +95,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+  name: null,
   isf: null,
   carbRatio: null,
   targetBG: null,

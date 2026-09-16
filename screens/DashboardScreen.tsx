@@ -1,5 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -19,10 +19,11 @@ import { getRecentTreatments } from '../lib/db/treatments';
 import { useGlucose } from '../lib/GlucoseContext';
 import { arrowForDirection, bgColor, formatDelta, formatMinutesAgo, isStale } from '../lib/glucose';
 import { usePrediction } from '../lib/oref/usePrediction';
-import { glucoseSourceLabel } from '../lib/settings';
+import { glucoseSourceLabel, useSettings } from '../lib/settings';
 import { BASAL_REMINDER_DATA_TYPE } from '../lib/tasks/basalReminders';
 import { quickActionStyle, withAlpha } from '../lib/theme';
 import { useTheme } from '../lib/ThemeContext';
+import { useSwipeTabNavigation } from '../lib/useSwipeTabNavigation';
 
 const MARKER_FETCH_COUNT = 50;
 
@@ -38,7 +39,7 @@ const CHART_WINDOWS_HOURS = [3, 6, 12, 24] as const;
 // since a forecast that far out stops being a useful "leading" indicator.
 const PREDICTION_HORIZON_POINTS = 12; // 12 * 5min = 60 minutes past predBGs[0]
 
-export function DashboardScreen() {
+export function DashboardScreen({ navigation }: { navigation: NavigationProp<ParamListBase> }) {
   const { current, glucoseSource, cgmStatus, cgmError } = useGlucose();
   const sourceLabel = glucoseSourceLabel(glucoseSource);
   const { colors, spacing, iconSize, fontScale, display } = useTheme();
@@ -49,6 +50,9 @@ export function DashboardScreen() {
   // used to be a static "CGM — xDrip+" label that never reflected the
   // actual configured source once Nightscout became an option.
   const sourceBadgeColor = glucoseSource === 'nightscout' ? colors.text.tertiary : colors.accent.xdrip;
+  const [settings] = useSettings();
+  const displayName = settings.name?.trim() || 'User';
+  const swipeHandlers = useSwipeTabNavigation(navigation);
 
   const [predictionVisible, setPredictionVisible] = useState(false);
   const [carbsVisible, setCarbsVisible] = useState(false);
@@ -189,8 +193,13 @@ export function DashboardScreen() {
   const iobCobUnavailable = prediction.checked && iobCob === null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.welcome}>Welcome, User</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} {...swipeHandlers.panHandlers}>
+      <View style={styles.welcomeRow}>
+        <View style={styles.avatarCircle}>
+          <Text style={styles.avatarInitial}>{displayName.charAt(0).toUpperCase()}</Text>
+        </View>
+        <Text style={styles.welcome}>Welcome, {displayName}</Text>
+      </View>
 
       <Card style={styles.readingCard}>
         <View style={styles.cardHeaderRow}>
@@ -385,12 +394,31 @@ function makeStyles(
       paddingBottom: 120,
       alignItems: 'center',
     },
-    welcome: {
+    welcomeRow: {
       width: '100%',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.base,
+    },
+    avatarCircle: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.brand,
+    },
+    avatarInitial: {
+      fontSize: 16 * fontScale,
+      fontWeight: '700',
+      color: colors.text.inverse,
+    },
+    welcome: {
+      flexShrink: 1,
       fontSize: 22 * fontScale,
       fontWeight: '700',
       color: colors.text.primary,
-      marginBottom: spacing.base,
     },
     readingCard: {
       width: '100%',
