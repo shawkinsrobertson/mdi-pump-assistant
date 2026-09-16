@@ -21,7 +21,7 @@ import { arrowForDirection, bgColor, formatDelta, formatMinutesAgo, isStale } fr
 import { usePrediction } from '../lib/oref/usePrediction';
 import { glucoseSourceLabel } from '../lib/settings';
 import { BASAL_REMINDER_DATA_TYPE } from '../lib/tasks/basalReminders';
-import { quickActionStyle } from '../lib/theme';
+import { quickActionStyle, withAlpha } from '../lib/theme';
 import { useTheme } from '../lib/ThemeContext';
 
 const MARKER_FETCH_COUNT = 50;
@@ -43,6 +43,12 @@ export function DashboardScreen() {
   const sourceLabel = glucoseSourceLabel(glucoseSource);
   const { colors, spacing, iconSize, fontScale, display } = useTheme();
   const styles = useMemo(() => makeStyles(colors, spacing, fontScale), [colors, spacing, fontScale]);
+  // Light gray for Nightscout (a neutral, low-key source), a distinct
+  // non-alert red for xDrip+ (see accent.xdrip's own comment in
+  // lib/theme.ts for why it's deliberately not status.danger) — this
+  // used to be a static "CGM — xDrip+" label that never reflected the
+  // actual configured source once Nightscout became an option.
+  const sourceBadgeColor = glucoseSource === 'nightscout' ? colors.text.tertiary : colors.accent.xdrip;
 
   const [predictionVisible, setPredictionVisible] = useState(false);
   const [carbsVisible, setCarbsVisible] = useState(false);
@@ -159,6 +165,18 @@ export function DashboardScreen() {
     }, [refreshAfterLog]),
   );
 
+  // IOB/COB decay over time even with no new treatments logged — before
+  // this, the prediction only ever recomputed on screen focus or right
+  // after logging something, so the displayed IOB/COB silently went
+  // stale while someone just sat on this screen watching it (bug report:
+  // "doesn't reflect entered treatments and decay"). A plain timer, not
+  // tied to the CGM poll, since IOB decay is purely a function of time +
+  // dose history and shouldn't stop just because the CGM feed does.
+  useEffect(() => {
+    const timer = setInterval(() => setRefreshToken((t) => t + 1), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const iobCob = prediction.result?.status === 'ok' ? prediction.result : null;
 
   return (
@@ -167,7 +185,10 @@ export function DashboardScreen() {
 
       <Card style={styles.readingCard}>
         <View style={styles.cardHeaderRow}>
-          <Text style={styles.label}>CGM — xDrip+</Text>
+          <View style={[styles.sourceBadge, { backgroundColor: withAlpha(sourceBadgeColor, 0.14) }]}>
+            <Ionicons name="water-outline" size={14} color={sourceBadgeColor} />
+            <Text style={[styles.sourceBadgeText, { color: sourceBadgeColor }]}>{sourceLabel}</Text>
+          </View>
           {iobCob && (
             <View style={styles.iobCobRow}>
               <View style={styles.iobCobItem}>
@@ -408,12 +429,20 @@ function makeStyles(
       fontSize: 13 * fontScale,
       fontWeight: '600',
     },
-    label: {
-      fontSize: 14 * fontScale,
-      color: colors.text.quaternary,
-      marginBottom: 16,
+    sourceBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      alignSelf: 'flex-start',
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 999,
+    },
+    sourceBadgeText: {
+      fontSize: 12 * fontScale,
+      fontWeight: '700',
       textTransform: 'uppercase',
-      letterSpacing: 1,
+      letterSpacing: 0.5,
     },
     headerRow: {
       flexDirection: 'row',
