@@ -178,6 +178,15 @@ export function DashboardScreen() {
   }, []);
 
   const iobCob = prediction.result?.status === 'ok' ? prediction.result : null;
+  // Distinguishes "still loading" (render nothing, matches the brief
+  // flash PredictionCallout already treats as invisible) from "checked,
+  // but there's genuinely no IOB/COB to show" (settings-incomplete or
+  // no-glucose-data) — the latter used to render nothing at all here,
+  // which read as "IOB/COB is just gone," not "unavailable for a reason."
+  // PredictionCallout below the chart already explains why in full
+  // sentences; this is just this compact stat row's own "—" placeholder
+  // so it's never silently blank once the first check completes.
+  const iobCobUnavailable = prediction.checked && iobCob === null;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -203,6 +212,18 @@ export function DashboardScreen() {
                   <Text style={styles.iobCobValue}>{iobCob.mealCOB} g</Text>
                 )}
                 {iobCob.cobPending && <Text style={styles.iobCobCaption}>waiting on CGM data</Text>}
+              </View>
+            </View>
+          )}
+          {iobCobUnavailable && (
+            <View style={styles.iobCobRow}>
+              <View style={styles.iobCobItem}>
+                <Text style={styles.iobCobLabel}>IOB</Text>
+                <Text style={styles.iobCobValue}>— U</Text>
+              </View>
+              <View style={styles.iobCobItem}>
+                <Text style={styles.iobCobLabel}>COB</Text>
+                <Text style={styles.iobCobValue}>— g</Text>
               </View>
             </View>
           )}
