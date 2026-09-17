@@ -3,6 +3,7 @@ import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-
 import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActivityLogModal } from '../components/ActivityLogModal';
 import { BolusWizardCard } from '../components/BolusWizardCard';
 import { CarbsLogModal } from '../components/CarbsLogModal';
@@ -53,6 +54,7 @@ export function DashboardScreen({ navigation }: { navigation: NavigationProp<Par
   const [settings] = useSettings();
   const displayName = settings.name?.trim() || 'User';
   const swipeHandlers = useSwipeTabNavigation(navigation);
+  const insets = useSafeAreaInsets();
 
   const [predictionVisible, setPredictionVisible] = useState(false);
   const [carbsVisible, setCarbsVisible] = useState(false);
@@ -193,7 +195,11 @@ export function DashboardScreen({ navigation }: { navigation: NavigationProp<Par
   const iobCobUnavailable = prediction.checked && iobCob === null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} {...swipeHandlers.panHandlers}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}
+      {...swipeHandlers.panHandlers}
+    >
       <View style={styles.welcomeRow}>
         <Image source={require('../assets/dashboard-icon.png')} style={styles.avatarIcon} />
         <Text style={styles.welcome}>Welcome, {displayName}</Text>
@@ -388,7 +394,6 @@ function makeStyles(
       flexGrow: 1,
       justifyContent: 'center',
       padding: spacing.xl,
-      paddingTop: 60,
       paddingBottom: 120,
       alignItems: 'center',
     },
@@ -413,7 +418,7 @@ function makeStyles(
     },
     welcome: {
       flexShrink: 1,
-      fontSize: 22 * fontScale,
+      fontSize: 24 * fontScale,
       fontWeight: '700',
       color: colors.text.primary,
     },

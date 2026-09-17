@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AgpChart } from '../components/AgpChart';
 import { Card } from '../components/ui/Card';
 import { getLatestInsight, type InsightRecord } from '../lib/db/insights';
@@ -72,6 +73,7 @@ export function TrendsScreen({ navigation }: { navigation: NavigationProp<ParamL
   const [settings, , settingsLoaded] = useSettings();
   const { colors: themeColors, spacing: themeSpacing, radius: themeRadius, fontScale } = useTheme();
   const swipeHandlers = useSwipeTabNavigation(navigation);
+  const insets = useSafeAreaInsets();
   const styles = useMemo(
     () => makeStyles(themeColors, themeSpacing, themeRadius, fontScale),
     [themeColors, themeSpacing, themeRadius, fontScale],
@@ -169,7 +171,11 @@ export function TrendsScreen({ navigation }: { navigation: NavigationProp<ParamL
   const patternAccents = useMemo(() => patternAccentColors(themeColors), [themeColors]);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} {...swipeHandlers.panHandlers}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + themeSpacing.xl }]}
+      {...swipeHandlers.panHandlers}
+    >
       <View style={styles.headerRow}>
         <Text style={styles.title}>Trends</Text>
         <Pressable
@@ -383,7 +389,6 @@ function makeStyles(
     },
     content: {
       padding: spacing.xl,
-      paddingTop: 60,
       paddingBottom: 120,
     },
     headerRow: {
@@ -393,7 +398,7 @@ function makeStyles(
       marginBottom: 16,
     },
     title: {
-      fontSize: 22 * fontScale,
+      fontSize: 24 * fontScale,
       fontWeight: '700',
       color: colors.text.primary,
     },
