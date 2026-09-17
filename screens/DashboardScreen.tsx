@@ -195,7 +195,7 @@ export function DashboardScreen({ navigation }: { navigation: NavigationProp<Par
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} {...swipeHandlers.panHandlers}>
       <View style={styles.welcomeRow}>
-        <Image source={require('../assets/favicon.png')} style={styles.avatarIcon} />
+        <Image source={require('../assets/dashboard-icon.png')} style={styles.avatarIcon} />
         <Text style={styles.welcome}>Welcome, {displayName}</Text>
       </View>
 
@@ -400,9 +400,13 @@ function makeStyles(
       marginBottom: spacing.base,
     },
     // The app's own icon (not a user/profile avatar — this app has no
-    // account-photo concept) placed to the left of the welcome message,
-    // per the on-device request to move it there instead of leaving the
-    // greeting unmarked.
+    // account-photo concept) placed to the left of the welcome message.
+    // assets/dashboard-icon.png is a PNG extracted from the app's real
+    // favicon.ico (256x256 frame) rather than requiring the .ico directly:
+    // Metro doesn't treat .ico as an asset type by default, and even if it
+    // did, iOS's UIImage / Android's Bitmap decoders don't parse the
+    // multi-resolution ICO container format — only a real bitmap image
+    // (PNG/JPG/etc.) renders reliably in a React Native <Image>.
     avatarIcon: {
       width: 32,
       height: 32,
