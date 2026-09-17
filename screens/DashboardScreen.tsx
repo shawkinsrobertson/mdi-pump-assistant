@@ -1,8 +1,8 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ActivityLogModal } from '../components/ActivityLogModal';
 import { BolusWizardCard } from '../components/BolusWizardCard';
 import { CarbsLogModal } from '../components/CarbsLogModal';
@@ -19,10 +19,11 @@ import { getRecentTreatments } from '../lib/db/treatments';
 import { useGlucose } from '../lib/GlucoseContext';
 import { arrowForDirection, bgColor, formatDelta, formatMinutesAgo, isStale } from '../lib/glucose';
 import { usePrediction } from '../lib/oref/usePrediction';
-import { glucoseSourceLabel } from '../lib/settings';
+import { glucoseSourceLabel, useSettings } from '../lib/settings';
 import { BASAL_REMINDER_DATA_TYPE } from '../lib/tasks/basalReminders';
-import { quickActionStyle } from '../lib/theme';
+import { quickActionStyle, withAlpha } from '../lib/theme';
 import { useTheme } from '../lib/ThemeContext';
+import { useSwipeTabNavigation } from '../lib/useSwipeTabNavigation';
 
 const MARKER_FETCH_COUNT = 50;
 
@@ -38,11 +39,20 @@ const CHART_WINDOWS_HOURS = [3, 6, 12, 24] as const;
 // since a forecast that far out stops being a useful "leading" indicator.
 const PREDICTION_HORIZON_POINTS = 12; // 12 * 5min = 60 minutes past predBGs[0]
 
-export function DashboardScreen() {
+export function DashboardScreen({ navigation }: { navigation: NavigationProp<ParamListBase> }) {
   const { current, glucoseSource, cgmStatus, cgmError } = useGlucose();
   const sourceLabel = glucoseSourceLabel(glucoseSource);
   const { colors, spacing, iconSize, fontScale, display } = useTheme();
   const styles = useMemo(() => makeStyles(colors, spacing, fontScale), [colors, spacing, fontScale]);
+  // Light gray for Nightscout (a neutral, low-key source), a distinct
+  // non-alert red for xDrip+ (see accent.xdrip's own comment in
+  // lib/theme.ts for why it's deliberately not status.danger) — this
+  // used to be a static "CGM — xDrip+" label that never reflected the
+  // actual configured source once Nightscout became an option.
+  const sourceBadgeColor = glucoseSource === 'nightscout' ? colors.text.tertiary : colors.accent.xdrip;
+  const [settings] = useSettings();
+  const displayName = settings.name?.trim() || 'User';
+  const swipeHandlers = useSwipeTabNavigation(navigation);
 
   const [predictionVisible, setPredictionVisible] = useState(false);
   const [carbsVisible, setCarbsVisible] = useState(false);
@@ -159,15 +169,42 @@ export function DashboardScreen() {
     }, [refreshAfterLog]),
   );
 
+  // IOB/COB decay over time even with no new treatments logged — before
+  // this, the prediction only ever recomputed on screen focus or right
+  // after logging something, so the displayed IOB/COB silently went
+  // stale while someone just sat on this screen watching it (bug report:
+  // "doesn't reflect entered treatments and decay"). A plain timer, not
+  // tied to the CGM poll, since IOB decay is purely a function of time +
+  // dose history and shouldn't stop just because the CGM feed does.
+  useEffect(() => {
+    const timer = setInterval(() => setRefreshToken((t) => t + 1), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const iobCob = prediction.result?.status === 'ok' ? prediction.result : null;
+  // Distinguishes "still loading" (render nothing, matches the brief
+  // flash PredictionCallout already treats as invisible) from "checked,
+  // but there's genuinely no IOB/COB to show" (settings-incomplete or
+  // no-glucose-data) — the latter used to render nothing at all here,
+  // which read as "IOB/COB is just gone," not "unavailable for a reason."
+  // PredictionCallout below the chart already explains why in full
+  // sentences; this is just this compact stat row's own "—" placeholder
+  // so it's never silently blank once the first check completes.
+  const iobCobUnavailable = prediction.checked && iobCob === null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.welcome}>Welcome, User</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} {...swipeHandlers.panHandlers}>
+      <View style={styles.welcomeRow}>
+        <Image source={require('../assets/favicon.png')} style={styles.avatarIcon} />
+        <Text style={styles.welcome}>Welcome, {displayName}</Text>
+      </View>
 
       <Card style={styles.readingCard}>
         <View style={styles.cardHeaderRow}>
-          <Text style={styles.label}>CGM — xDrip+</Text>
+          <View style={[styles.sourceBadge, { backgroundColor: withAlpha(sourceBadgeColor, 0.14) }]}>
+            <Ionicons name="water-outline" size={14} color={sourceBadgeColor} />
+            <Text style={[styles.sourceBadgeText, { color: sourceBadgeColor }]}>{sourceLabel}</Text>
+          </View>
           {iobCob && (
             <View style={styles.iobCobRow}>
               <View style={styles.iobCobItem}>
@@ -182,6 +219,18 @@ export function DashboardScreen() {
                   <Text style={styles.iobCobValue}>{iobCob.mealCOB} g</Text>
                 )}
                 {iobCob.cobPending && <Text style={styles.iobCobCaption}>waiting on CGM data</Text>}
+              </View>
+            </View>
+          )}
+          {iobCobUnavailable && (
+            <View style={styles.iobCobRow}>
+              <View style={styles.iobCobItem}>
+                <Text style={styles.iobCobLabel}>IOB</Text>
+                <Text style={styles.iobCobValue}>— U</Text>
+              </View>
+              <View style={styles.iobCobItem}>
+                <Text style={styles.iobCobLabel}>COB</Text>
+                <Text style={styles.iobCobValue}>— g</Text>
               </View>
             </View>
           )}
@@ -343,12 +392,26 @@ function makeStyles(
       paddingBottom: 120,
       alignItems: 'center',
     },
-    welcome: {
+    welcomeRow: {
       width: '100%',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.base,
+    },
+    // The app's own icon (not a user/profile avatar — this app has no
+    // account-photo concept) placed to the left of the welcome message,
+    // per the on-device request to move it there instead of leaving the
+    // greeting unmarked.
+    avatarIcon: {
+      width: 32,
+      height: 32,
+    },
+    welcome: {
+      flexShrink: 1,
       fontSize: 22 * fontScale,
       fontWeight: '700',
       color: colors.text.primary,
-      marginBottom: spacing.base,
     },
     readingCard: {
       width: '100%',
@@ -408,12 +471,20 @@ function makeStyles(
       fontSize: 13 * fontScale,
       fontWeight: '600',
     },
-    label: {
-      fontSize: 14 * fontScale,
-      color: colors.text.quaternary,
-      marginBottom: 16,
+    sourceBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      alignSelf: 'flex-start',
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 999,
+    },
+    sourceBadgeText: {
+      fontSize: 12 * fontScale,
+      fontWeight: '700',
       textTransform: 'uppercase',
-      letterSpacing: 1,
+      letterSpacing: 0.5,
     },
     headerRow: {
       flexDirection: 'row',

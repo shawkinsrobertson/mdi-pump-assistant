@@ -1,5 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
+<<<<<<< HEAD
 import { useFocusEffect } from '@react-navigation/native';
+=======
+import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-navigation/native';
+>>>>>>> 3f178c4739248f46e4f77b4e0946cc89787a6921
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, RefreshControl, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BleMeterModal } from '../components/BleMeterModal';
@@ -29,6 +33,7 @@ import { logEntryId, logEntryTime, type LogEntry } from '../lib/logbookEntry';
 import { isNightscoutConfigured, syncNightscoutTreatments } from '../lib/nightscout/sync';
 import { useSettings } from '../lib/settings';
 import { useTheme } from '../lib/ThemeContext';
+import { useSwipeTabNavigation } from '../lib/useSwipeTabNavigation';
 
 const RECENT_COUNT = 50;
 
@@ -248,9 +253,48 @@ function matchesQuery(entry: LogEntry, query: string): boolean {
   return haystack.includes(q);
 }
 
-export function LogbookScreen() {
+type FilterChip = 'basal' | 'correction' | 'carb' | 'note' | 'date';
+
+const FILTER_CHIPS: { key: FilterChip; label: string }[] = [
+  { key: 'basal', label: 'Basal' },
+  { key: 'correction', label: 'Correction' },
+  { key: 'carb', label: 'Carb' },
+  { key: 'note', label: 'Note' },
+  { key: 'date', label: 'Date' },
+];
+
+// "Date" is a fixed "today only" quick filter, not a date-range/calendar
+// picker — no calendar library exists in this project yet (see
+// matchesQuery's own comment above), and the other 4 chips are already
+// simple one-tap booleans; this keeps all 5 consistent instead of "date"
+// alone needing a whole picker UI to satisfy "chips ... that allow the
+// user to quickly filter when tapped."
+function matchesFilterChip(entry: LogEntry, filter: FilterChip, today: Date): boolean {
+  switch (filter) {
+    case 'basal':
+      return entry.kind === 'basal';
+    case 'correction':
+      return (
+        (entry.kind === 'treatment' && entry.treatment.eventType === 'Correction Bolus') ||
+        (entry.kind === 'nightscoutTreatment' && entry.record.eventType === 'Correction Bolus')
+      );
+    case 'carb':
+      return (
+        (entry.kind === 'treatment' && entry.treatment.carbs != null) ||
+        (entry.kind === 'nightscoutTreatment' && entry.record.carbs != null) ||
+        entry.kind === 'healthNutrition'
+      );
+    case 'note':
+      return entry.kind === 'note';
+    case 'date':
+      return dayLabel(new Date(logEntryTime(entry)), today) === 'Today';
+  }
+}
+
+export function LogbookScreen({ navigation }: { navigation: NavigationProp<ParamListBase> }) {
   const { colors, spacing } = useTheme();
   const styles = useMemo(() => makeStyles(colors, spacing), [colors, spacing]);
+  const swipeHandlers = useSwipeTabNavigation(navigation);
   const { reportBleLiveReading, reportBleHistorySync } = useGlucose();
   const [settings] = useSettings();
   const [treatments, setTreatments] = useState<Treatment[] | null>(null);
@@ -263,6 +307,7 @@ export function LogbookScreen() {
   const [nightscoutTreatments, setNightscoutTreatments] = useState<NightscoutTreatmentRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [activeFilters, setActiveFilters] = useState<Set<FilterChip>>(new Set());
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null);
   const [bleModalVisible, setBleModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -356,6 +401,18 @@ export function LogbookScreen() {
     healthNutrition !== null &&
     nightscoutTreatments !== null;
 
+<<<<<<< HEAD
+=======
+  const toggleFilter = useCallback((key: FilterChip) => {
+    setActiveFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+>>>>>>> 3f178c4739248f46e4f77b4e0946cc89787a6921
   const [expandedSmbGroups, setExpandedSmbGroups] = useState<Set<string>>(new Set());
   const toggleSmbGroup = useCallback((hourKey: string) => {
     setExpandedSmbGroups((prev) => {
@@ -366,6 +423,7 @@ export function LogbookScreen() {
     });
   }, []);
 
+<<<<<<< HEAD
   const filtered = useMemo(
     () =>
       groupSmbEntries(
@@ -392,6 +450,42 @@ export function LogbookScreen() {
       query,
     ],
   );
+=======
+  const filtered = useMemo(() => {
+    const today = new Date();
+    // "date" narrows whatever else is showing (an AND); the other 4 are
+    // categories that add to each other (an OR) — selecting both "basal"
+    // and "carb" should show entries of either kind, not entries that
+    // are somehow both.
+    const typeFilters = [...activeFilters].filter((f): f is Exclude<FilterChip, 'date'> => f !== 'date');
+    return groupSmbEntries(
+      mergeEntries(
+        treatments ?? [],
+        basalDoses ?? [],
+        activities ?? [],
+        notes ?? [],
+        bleReadings ?? [],
+        healthActivities ?? [],
+        healthNutrition ?? [],
+        nightscoutTreatments ?? [],
+      )
+        .filter((e) => matchesQuery(e, query))
+        .filter((e) => typeFilters.length === 0 || typeFilters.some((f) => matchesFilterChip(e, f, today)))
+        .filter((e) => !activeFilters.has('date') || matchesFilterChip(e, 'date', today)),
+    );
+  }, [
+    treatments,
+    basalDoses,
+    activities,
+    notes,
+    bleReadings,
+    healthActivities,
+    healthNutrition,
+    nightscoutTreatments,
+    query,
+    activeFilters,
+  ]);
+>>>>>>> 3f178c4739248f46e4f77b4e0946cc89787a6921
 
   const handleDelete = useCallback(
     (entry: LogEntry) => {
@@ -431,7 +525,7 @@ export function LogbookScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} {...swipeHandlers.panHandlers}>
       <Text style={styles.title}>Logbook</Text>
 
       <Pressable onPress={() => setBleModalVisible(true)} style={styles.connectMeterLink}>
@@ -445,6 +539,21 @@ export function LogbookScreen() {
         placeholder="Search by type, date, or note…"
         placeholderTextColor={colors.text.placeholder}
       />
+
+      <View style={styles.chipsRow}>
+        {FILTER_CHIPS.map((chip) => {
+          const active = activeFilters.has(chip.key);
+          return (
+            <Pressable
+              key={chip.key}
+              onPress={() => toggleFilter(chip.key)}
+              style={[styles.chip, active && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>{chip.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
       {error && <Text style={styles.error}>Couldn't load entries: {error}</Text>}
       {!error && !loaded && <Text style={styles.message}>Loading…</Text>}
@@ -580,6 +689,32 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], spacing: Retu
       fontSize: 15,
       color: colors.text.primary,
       marginBottom: spacing.base,
+    },
+    chipsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginBottom: spacing.base,
+    },
+    chip: {
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      borderRadius: 999,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      backgroundColor: colors.bg.primary,
+    },
+    chipActive: {
+      backgroundColor: colors.brand,
+      borderColor: colors.brand,
+    },
+    chipText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.text.secondary,
+    },
+    chipTextActive: {
+      color: colors.text.inverse,
     },
     listContent: {
       paddingBottom: 120,
