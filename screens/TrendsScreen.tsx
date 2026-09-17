@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AgpChart } from '../components/AgpChart';
@@ -16,6 +16,7 @@ import { computeAgpBuckets, computeAgpSummary } from '../lib/trends/agp';
 import { computeTimeInRange } from '../lib/trends/timeInRange';
 import { TRENDS_WINDOWS, trendsWindowLabel, windowStartMs, type TrendsWindow } from '../lib/trends/window';
 import { useTheme } from '../lib/ThemeContext';
+import { useSwipeTabNavigation } from '../lib/useSwipeTabNavigation';
 
 // The Insights card gets its own style factory (makeInsightStyles)
 // rather than sharing makeStyles below — an AI-generated insight
@@ -67,9 +68,10 @@ function formatSummaryValue(stat: SummaryStat, value: number): string {
   return `${value.toFixed(1)} mg/dL`;
 }
 
-export function TrendsScreen() {
+export function TrendsScreen({ navigation }: { navigation: NavigationProp<ParamListBase> }) {
   const [settings, , settingsLoaded] = useSettings();
   const { colors: themeColors, spacing: themeSpacing, radius: themeRadius, fontScale } = useTheme();
+  const swipeHandlers = useSwipeTabNavigation(navigation);
   const styles = useMemo(
     () => makeStyles(themeColors, themeSpacing, themeRadius, fontScale),
     [themeColors, themeSpacing, themeRadius, fontScale],
@@ -167,7 +169,7 @@ export function TrendsScreen() {
   const patternAccents = useMemo(() => patternAccentColors(themeColors), [themeColors]);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} {...swipeHandlers.panHandlers}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Trends</Text>
         <Pressable
