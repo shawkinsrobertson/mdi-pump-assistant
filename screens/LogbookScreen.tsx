@@ -1,9 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-<<<<<<< HEAD
-import { useFocusEffect } from '@react-navigation/native';
-=======
 import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-navigation/native';
->>>>>>> 3f178c4739248f46e4f77b4e0946cc89787a6921
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, RefreshControl, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BleMeterModal } from '../components/BleMeterModal';
@@ -401,8 +397,6 @@ export function LogbookScreen({ navigation }: { navigation: NavigationProp<Param
     healthNutrition !== null &&
     nightscoutTreatments !== null;
 
-<<<<<<< HEAD
-=======
   const toggleFilter = useCallback((key: FilterChip) => {
     setActiveFilters((prev) => {
       const next = new Set(prev);
@@ -412,7 +406,6 @@ export function LogbookScreen({ navigation }: { navigation: NavigationProp<Param
     });
   }, []);
 
->>>>>>> 3f178c4739248f46e4f77b4e0946cc89787a6921
   const [expandedSmbGroups, setExpandedSmbGroups] = useState<Set<string>>(new Set());
   const toggleSmbGroup = useCallback((hourKey: string) => {
     setExpandedSmbGroups((prev) => {
@@ -423,34 +416,6 @@ export function LogbookScreen({ navigation }: { navigation: NavigationProp<Param
     });
   }, []);
 
-<<<<<<< HEAD
-  const filtered = useMemo(
-    () =>
-      groupSmbEntries(
-        mergeEntries(
-          treatments ?? [],
-          basalDoses ?? [],
-          activities ?? [],
-          notes ?? [],
-          bleReadings ?? [],
-          healthActivities ?? [],
-          healthNutrition ?? [],
-          nightscoutTreatments ?? [],
-        ).filter((e) => matchesQuery(e, query)),
-      ),
-    [
-      treatments,
-      basalDoses,
-      activities,
-      notes,
-      bleReadings,
-      healthActivities,
-      healthNutrition,
-      nightscoutTreatments,
-      query,
-    ],
-  );
-=======
   const filtered = useMemo(() => {
     const today = new Date();
     // "date" narrows whatever else is showing (an AND); the other 4 are
@@ -485,7 +450,6 @@ export function LogbookScreen({ navigation }: { navigation: NavigationProp<Param
     query,
     activeFilters,
   ]);
->>>>>>> 3f178c4739248f46e4f77b4e0946cc89787a6921
 
   const handleDelete = useCallback(
     (entry: LogEntry) => {
