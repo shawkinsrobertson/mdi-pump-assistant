@@ -3,6 +3,7 @@ import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-
 import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActivityLogModal } from '../components/ActivityLogModal';
 import { BolusWizardCard } from '../components/BolusWizardCard';
 import { CarbsLogModal } from '../components/CarbsLogModal';
@@ -53,6 +54,7 @@ export function DashboardScreen({ navigation }: { navigation: NavigationProp<Par
   const [settings] = useSettings();
   const displayName = settings.name?.trim() || 'User';
   const swipeHandlers = useSwipeTabNavigation(navigation);
+  const insets = useSafeAreaInsets();
 
   const [predictionVisible, setPredictionVisible] = useState(false);
   const [carbsVisible, setCarbsVisible] = useState(false);
@@ -193,9 +195,13 @@ export function DashboardScreen({ navigation }: { navigation: NavigationProp<Par
   const iobCobUnavailable = prediction.checked && iobCob === null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} {...swipeHandlers.panHandlers}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}
+      {...swipeHandlers.panHandlers}
+    >
       <View style={styles.welcomeRow}>
-        <Image source={require('../assets/favicon.png')} style={styles.avatarIcon} />
+        <Image source={require('../assets/dashboard-icon.png')} style={styles.avatarIcon} />
         <Text style={styles.welcome}>Welcome, {displayName}</Text>
       </View>
 
@@ -388,7 +394,6 @@ function makeStyles(
       flexGrow: 1,
       justifyContent: 'center',
       padding: spacing.xl,
-      paddingTop: 60,
       paddingBottom: 120,
       alignItems: 'center',
     },
@@ -400,16 +405,20 @@ function makeStyles(
       marginBottom: spacing.base,
     },
     // The app's own icon (not a user/profile avatar — this app has no
-    // account-photo concept) placed to the left of the welcome message,
-    // per the on-device request to move it there instead of leaving the
-    // greeting unmarked.
+    // account-photo concept) placed to the left of the welcome message.
+    // assets/dashboard-icon.png is a PNG extracted from the app's real
+    // favicon.ico (256x256 frame) rather than requiring the .ico directly:
+    // Metro doesn't treat .ico as an asset type by default, and even if it
+    // did, iOS's UIImage / Android's Bitmap decoders don't parse the
+    // multi-resolution ICO container format — only a real bitmap image
+    // (PNG/JPG/etc.) renders reliably in a React Native <Image>.
     avatarIcon: {
       width: 32,
       height: 32,
     },
     welcome: {
       flexShrink: 1,
-      fontSize: 22 * fontScale,
+      fontSize: 24 * fontScale,
       fontWeight: '700',
       color: colors.text.primary,
     },

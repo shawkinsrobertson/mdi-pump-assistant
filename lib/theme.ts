@@ -32,13 +32,15 @@ export interface ThemeColors {
   // must never look like an error state just because it's red-ish.
   accent: { info: string; xdrip: string };
   action: { primaryBg: string; secondaryBg: string };
-  // GlucoseChart/AgpChart's own subtle gridline + axis-label tones. Kept
-  // theme-specific rather than reusing `border`/`text` tokens directly:
-  // the light-mode grid is deliberately near-invisible against white
-  // (contrast ~1.5:1, by design), and reusing that same hex against a
-  // near-black dark background would read as a bright, glaring line
-  // instead of a subtle one — see AGENTS.md on contrast regressions
-  // introduced by carrying a light-mode value into dark mode unchanged.
+  // GlucoseChart/AgpChart's own gridline + axis-label tones. Kept
+  // theme-specific rather than reusing `border`/`text` tokens directly —
+  // reusing the light theme's value unchanged in dark mode would read as
+  // a bright, glaring line instead of a comparably-visible one. `grid`
+  // was originally tuned to ~1.5:1 contrast (near-invisible "by design"),
+  // but on-device feedback called it too faint to read at a glance,
+  // especially the vertical hour gridlines — both themes' values below
+  // are now tuned for a clearly-visible, still-subtle dotted line rather
+  // than that original near-invisible target.
   chart: { grid: string; muted: string };
   // Quick Action icon/label + glucose-chart marker color per action type.
   // Verified >=4.5:1 against this theme's own card background (see the
@@ -82,7 +84,7 @@ export const lightColors: ThemeColors = {
     secondaryBg: '#888888',
   },
   chart: {
-    grid: '#D1D5DB',
+    grid: '#9CA3AF', // was '#D1D5DB' — too faint to read against a white card
     muted: '#6B7280',
   },
   quickAction: {
@@ -131,10 +133,10 @@ export const darkColors: ThemeColors = {
     secondaryBg: '#48484A',
   },
   chart: {
-    // Matches the light theme's grid contrast (~1.5:1) against its own
-    // background instead of reusing the light-mode hex, which would
-    // measure ~11.5:1 here — a glaring line rather than a subtle one.
-    grid: '#3A3A3C',
+    // Lightened alongside the light theme's darker grid value — was
+    // '#3A3A3C' (matched the old near-invisible light-mode contrast), now
+    // a step lighter so it's similarly readable against the dark card.
+    grid: '#5A5A5E',
     muted: '#8E8E93',
   },
   quickAction: {

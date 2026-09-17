@@ -39,3 +39,5 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+mdi-logger-debug1.3.apk
+eas.json
