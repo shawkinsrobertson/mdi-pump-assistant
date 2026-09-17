@@ -2,7 +2,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ActivityLogModal } from '../components/ActivityLogModal';
 import { BolusWizardCard } from '../components/BolusWizardCard';
 import { CarbsLogModal } from '../components/CarbsLogModal';
@@ -195,9 +195,7 @@ export function DashboardScreen({ navigation }: { navigation: NavigationProp<Par
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} {...swipeHandlers.panHandlers}>
       <View style={styles.welcomeRow}>
-        <View style={styles.avatarCircle}>
-          <Text style={styles.avatarInitial}>{displayName.charAt(0).toUpperCase()}</Text>
-        </View>
+        <Image source={require('../assets/favicon.png')} style={styles.avatarIcon} />
         <Text style={styles.welcome}>Welcome, {displayName}</Text>
       </View>
 
@@ -401,18 +399,13 @@ function makeStyles(
       gap: spacing.sm,
       marginBottom: spacing.base,
     },
-    avatarCircle: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.brand,
-    },
-    avatarInitial: {
-      fontSize: 16 * fontScale,
-      fontWeight: '700',
-      color: colors.text.inverse,
+    // The app's own icon (not a user/profile avatar — this app has no
+    // account-photo concept) placed to the left of the welcome message,
+    // per the on-device request to move it there instead of leaving the
+    // greeting unmarked.
+    avatarIcon: {
+      width: 32,
+      height: 32,
     },
     welcome: {
       flexShrink: 1,
