@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { type LayoutChangeEvent, Pressable, View } from 'react-native';
 import Svg, { Circle, Line, Path, Polygon, Rect, Text as SvgText } from 'react-native-svg';
 import { bgColor } from '../lib/glucose';
-import { formatTime } from '../lib/time';
 import type { TimeFormat } from '../lib/ThemeContext';
 import { withAlpha, type MarkerShape, type ThemeColors } from '../lib/theme';
 
@@ -47,6 +46,28 @@ export const CHART_RIGHT_PADDING_RATIO = PADDING.right / WIDTH;
 // was originally 30min, but that only left room for 10pt labels; hourly
 // marks give the labels enough width to read at >=14pt instead.
 const GRID_INTERVAL_MIN: Record<number, number> = { 3: 60, 6: 60, 12: 120, 24: 240 };
+
+// x-axis labels: hour-only ("14" in 24h, "2"/"11" in 12h format) rather
+// than a full HH:MM — HH:MM overlapped and became unreadable once a 6h+
+// window packs more gridlines into the same chart width at the larger
+// (now-16px) label size. A bare 12h-format hour number is ambiguous
+// across the AM/PM boundary, so only the label where the meridiem
+// actually changes from the previous one gets an "A"/"P" suffix (e.g.
+// "12P" for noon, "12A" for midnight) — every other label stays a plain
+// number.
+function chartHourLabels(times: number[], format: TimeFormat): string[] {
+  let prevMeridiem: 'A' | 'P' | null = null;
+  return times.map((t) => {
+    const d = new Date(t);
+    const hour24 = d.getHours();
+    if (format === '24h') return hour24.toString();
+    const meridiem: 'A' | 'P' = hour24 < 12 ? 'A' : 'P';
+    const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+    const crossedMeridiem = meridiem !== prevMeridiem;
+    prevMeridiem = meridiem;
+    return crossedMeridiem ? `${hour12}${meridiem}` : `${hour12}`;
+  });
+}
 
 // Renders each Quick Action marker shape at a fixed baseline just above
 // the x-axis, rather than at its glucose value — keeps markers legible
@@ -150,8 +171,11 @@ export function GlucoseChart({
       : '';
 
   const lineColor = bgColor(last.sgv, colors);
-  const bandIn = withAlpha(colors.status.success, 0.12);
-  const bandWarn = withAlpha(colors.status.warning, 0.12);
+  // Lowered from 0.12 — on-device feedback called the in-range/out-of-
+  // range bands too saturated/loud, especially once they span the full
+  // width of a 12h/24h window.
+  const bandIn = withAlpha(colors.status.success, 0.08);
+  const bandWarn = withAlpha(colors.status.warning, 0.08);
   const bands = [
     { from: 70, to: 180, color: bandIn },
     { from: 55, to: 70, color: bandWarn },
@@ -164,6 +188,7 @@ export function GlucoseChart({
   for (let t = firstGridT; t <= maxT; t += gridIntervalMs) {
     timeGridlines.push(t);
   }
+  const timeLabels = chartHourLabels(timeGridlines, timeFormat);
 
   const chart = (
     <View style={{ width: '100%', aspectRatio: WIDTH / HEIGHT }} onLayout={handleLayout}>
@@ -191,7 +216,7 @@ export function GlucoseChart({
             strokeWidth={1}
           />
         ))}
-        {timeGridlines.map((t) => (
+        {timeGridlines.map((t, i) => (
           <SvgText
             key={`vlabel-${t}`}
             x={x(t)}
@@ -200,7 +225,7 @@ export function GlucoseChart({
             fontSize={labelFontSize}
             fill={colors.chart.muted}
           >
-            {formatTime(new Date(t), timeFormat)}
+            {timeLabels[i]}
           </SvgText>
         ))}
 
