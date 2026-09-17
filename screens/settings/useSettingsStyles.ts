@@ -2,10 +2,17 @@ import { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import { useTheme } from '../../lib/ThemeContext';
 
-// Shared style set for the Settings home screen + all 6 category
-// screens — theme-aware (rebuilds when colors/font scale change),
-// unlike the rest of the app which still uses the static lib/theme.ts
-// export (see AGENTS.md — dark mode is applied to Settings first).
+// Shared style set for the 6 Settings category screens (Integrations,
+// Account and Profile, etc.) — NOT SettingsHomeScreen, which has its own
+// local styles (see that file's comment on paddingTop for why). These 6
+// screens all render under a real react-navigation native-stack header
+// (see SettingsNavigator.tsx — only SettingsHome sets `headerShown:
+// false`), which already reserves the correct safe-area space above
+// its content on both iOS and Android — adding another top-inset here
+// on top of that would double-pad them. Theme-aware (rebuilds when
+// colors/font scale change), unlike the rest of the app which still
+// uses the static lib/theme.ts export (see AGENTS.md — dark mode is
+// applied to Settings first).
 export function useSettingsStyles() {
   const { colors, spacing, radius, fontScale } = useTheme();
 

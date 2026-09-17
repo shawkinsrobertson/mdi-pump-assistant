@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../lib/ThemeContext';
 import type { SettingsStackParamList } from './SettingsNavigator';
 
@@ -52,11 +53,18 @@ const CATEGORIES: {
 
 export function SettingsHomeScreen({ navigation }: Props) {
   const { colors, spacing, radius, fontScale } = useTheme();
+  // This is the one Settings screen with no react-navigation header
+  // (see SettingsNavigator.tsx's `headerShown: false` for SettingsHome) —
+  // every other Settings screen gets its top safe-area inset handled for
+  // free by its native-stack header, but this one has to account for the
+  // status bar/notch itself. Confirmed running the "Settings" title and
+  // first card into the status bar without this.
+  const insets = useSafeAreaInsets();
 
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.bg.surface }]}
-      contentContainerStyle={[styles.content, { padding: spacing.xl, paddingBottom: 120 }]}
+      contentContainerStyle={[styles.content, { padding: spacing.xl, paddingTop: insets.top + spacing.xl, paddingBottom: 120 }]}
     >
       <Text style={[styles.title, { color: colors.text.primary, fontSize: 22 * fontScale, marginBottom: spacing.base }]}>
         Settings

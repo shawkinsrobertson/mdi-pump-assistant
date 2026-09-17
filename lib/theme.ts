@@ -27,7 +27,10 @@ export interface ThemeColors {
     inverse: string;
   };
   status: { success: string; successStrong: string; danger: string; warning: string };
-  accent: { info: string };
+  // `xdrip` is deliberately a distinct hue from `status.danger` — the
+  // Dashboard's CGM-source badge uses it for the xDrip+ pill, and it
+  // must never look like an error state just because it's red-ish.
+  accent: { info: string; xdrip: string };
   action: { primaryBg: string; secondaryBg: string };
   // GlucoseChart/AgpChart's own subtle gridline + axis-label tones. Kept
   // theme-specific rather than reusing `border`/`text` tokens directly:
@@ -72,6 +75,7 @@ export const lightColors: ThemeColors = {
   },
   accent: {
     info: '#1E3A8A',
+    xdrip: '#9F1239', // muted brick/rose red — reads as "red" without being status.danger's alert red
   },
   action: {
     primaryBg: '#111111',
@@ -120,6 +124,7 @@ export const darkColors: ThemeColors = {
   },
   accent: {
     info: '#5E9CFF',
+    xdrip: '#FB7185', // lighter rose for dark-bg visibility — same non-alert-red intent as the light theme's value
   },
   action: {
     primaryBg: '#2C2C2E',
