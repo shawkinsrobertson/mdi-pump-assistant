@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, RefreshControl, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BleMeterModal } from '../components/BleMeterModal';
 import { LogbookEntryModal } from '../components/LogbookEntryModal';
 import { deleteActivity, getRecentActivities, type ActivityRecord } from '../lib/db/activities';
@@ -288,8 +289,9 @@ function matchesFilterChip(entry: LogEntry, filter: FilterChip, today: Date): bo
 }
 
 export function LogbookScreen({ navigation }: { navigation: NavigationProp<ParamListBase> }) {
-  const { colors, spacing } = useTheme();
-  const styles = useMemo(() => makeStyles(colors, spacing), [colors, spacing]);
+  const { colors, spacing, fontScale } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, spacing, fontScale), [colors, spacing, fontScale]);
+  const insets = useSafeAreaInsets();
   const swipeHandlers = useSwipeTabNavigation(navigation);
   const { reportBleLiveReading, reportBleHistorySync } = useGlucose();
   const [settings] = useSettings();
@@ -489,7 +491,7 @@ export function LogbookScreen({ navigation }: { navigation: NavigationProp<Param
   );
 
   return (
-    <View style={styles.container} {...swipeHandlers.panHandlers}>
+    <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]} {...swipeHandlers.panHandlers}>
       <Text style={styles.title}>Logbook</Text>
 
       <Pressable onPress={() => setBleModalVisible(true)} style={styles.connectMeterLink}>
@@ -622,16 +624,28 @@ export function LogbookScreen({ navigation }: { navigation: NavigationProp<Param
   );
 }
 
-function makeStyles(colors: ReturnType<typeof useTheme>['colors'], spacing: ReturnType<typeof useTheme>['spacing']) {
+function makeStyles(
+  colors: ReturnType<typeof useTheme>['colors'],
+  spacing: ReturnType<typeof useTheme>['spacing'],
+  fontScale: number,
+) {
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.bg.primary,
+      // Matches Dashboard/Trends/Settings, which all use bg.surface for
+      // the page itself — this screen previously used bg.primary (a
+      // plain white/near-black card color) directly on its own root
+      // View instead, which made it visibly lighter/flatter than every
+      // other screen in light mode.
+      backgroundColor: colors.bg.surface,
       padding: spacing.xl,
-      paddingTop: 60,
     },
     title: {
-      fontSize: 20,
+      // Matches Dashboard's "welcome" text, Trends' and Settings' title
+      // — was hardcoded to 20 with no fontScale multiplier at all, the
+      // one page title that didn't respect the Display > Font Size
+      // setting and read smaller than the other three pages' titles.
+      fontSize: 24 * fontScale,
       fontWeight: '700',
       marginBottom: spacing.sm,
       color: colors.text.primary,
