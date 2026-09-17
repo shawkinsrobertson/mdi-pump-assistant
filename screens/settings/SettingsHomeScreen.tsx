@@ -74,7 +74,7 @@ export function SettingsHomeScreen({ navigation }: Props) {
       contentContainerStyle={[styles.content, { padding: spacing.xl, paddingTop: insets.top + spacing.xl, paddingBottom: 120 }]}
       {...swipeHandlers.panHandlers}
     >
-      <Text style={[styles.title, { color: colors.text.primary, fontSize: 22 * fontScale, marginBottom: spacing.base }]}>
+      <Text style={[styles.title, { color: colors.text.primary, fontSize: 24 * fontScale, marginBottom: spacing.base }]}>
         Settings
       </Text>
 
