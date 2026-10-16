@@ -30,14 +30,22 @@ const SWIPE_VELOCITY_THRESHOLD = 400;
 // itself, or this will read the wrong navigator's state.
 export function useSwipeTabNavigation(tabNavigation: NavigationProp<ParamListBase> | undefined) {
   return Gesture.Pan()
-    // Only start tracking once the drag is unambiguously horizontal —
-    // +/-20px of sideways movement before the gesture activates at all.
-    .activeOffsetX([-20, 20])
-    // Release to the ScrollView immediately on any real vertical movement
-    // (+/-10px) seen before the horizontal activation threshold above —
-    // this is what lets a vertical scroll "win" cleanly instead of
-    // fighting the swipe gesture for the touch.
-    .failOffsetY([-10, 10])
+    // Claim the gesture quickly once there's any clear horizontal intent —
+    // +/-10px of sideways movement is enough to activate.
+    .activeOffsetX([-10, 10])
+    // Only give up to the ScrollView on a *clearly* vertical drag — +/-20px
+    // of vertical movement before 10px of horizontal has happened.
+    //
+    // These two numbers need failOffsetY > activeOffsetX, not the other
+    // way around: whichever threshold a real, slightly-diagonal swipe
+    // crosses first wins the gesture. The first cut of this had
+    // activeOffsetX at 20 and failOffsetY at 10 — twice as hard to
+    // activate as to cancel — so almost any natural swipe (nobody's thumb
+    // moves in a perfectly straight horizontal line) failed to the
+    // ScrollView before ever reaching the horizontal activation distance,
+    // which is exactly the "still difficult, doesn't always work" report
+    // this was supposed to fix.
+    .failOffsetY([-20, 20])
     // tabNavigation.navigate() is a plain JS closure over React Navigation
     // state, not a worklet — must run on the JS thread rather than the UI
     // thread the new Gesture API defaults to.
