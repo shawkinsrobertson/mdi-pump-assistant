@@ -103,13 +103,27 @@ export async function fetchNightscoutEntries(baseUrl: string, token: string, cou
 // Fixed with cursor-based backward pagination: each page is bounded above
 // by `created_at <$lte>` (unset on the first page, so it starts from
 // "now"), and the oldest `created_at` seen in a page becomes the next
-// page's `$lte` cursor, minus 1ms so that boundary record isn't re-fetched
-// into the next page. Pagination stops once a page comes back with fewer
+// page's `$lte` cursor. Pagination stops once a page comes back with fewer
 // than `count` records (the `$gte..$lte` window is exhausted) or empty.
 // `lib/ble/racp.ts` is this app's other paginated remote fetch, but its
 // ascending-sequence-number protocol doesn't transfer here — Nightscout's
 // REST API gives no reliable ascending-sort guarantee to page forward by,
 // hence paging backward from "now" instead.
+//
+// The cursor is INCLUSIVE (not `oldestMs - 1ms`) specifically to handle
+// several treatments sharing the exact same `created_at` (realistic: some
+// uploaders omit milliseconds, and a closed-loop system can batch-upload
+// several entries within the same second). An exclusive cursor would
+// silently and permanently drop any tied record that didn't make it into
+// the page before the `count` cutoff split the tie — the next page's
+// `$lte` would exclude that timestamp entirely, so it's never re-fetched.
+// Re-including the boundary value and relying on `seenIds` to dedupe
+// across pages instead recovers those stragglers. If a full page comes
+// back with zero records not already in `seenIds`, every record at this
+// exact boundary has already been captured (or there are more ties at one
+// timestamp than fit in a single page, which no secondary sort key exists
+// to page through) — either way, re-fetching the same cursor again would
+// make no further progress, so pagination stops rather than looping.
 export async function fetchNightscoutTreatments(
   baseUrl: string,
   token: string,
@@ -141,18 +155,21 @@ export async function fetchNightscoutTreatments(
     if (!Array.isArray(data)) throw new Error('Unexpected Nightscout treatments response (expected an array)');
 
     const normalized = data.map(normalizeTreatment).filter((t): t is NightscoutTreatment => t !== null);
+    let newCount = 0;
     for (const t of normalized) {
       if (!seenIds.has(t.id)) {
         seenIds.add(t.id);
         results.push(t);
+        newCount++;
       }
     }
 
     if (data.length < count) break; // short (or empty) page — window exhausted
+    if (newCount === 0) break; // stuck re-fetching an already-seen tied boundary — see comment above
 
     const oldestMs = normalized.reduce((min, t) => Math.min(min, Date.parse(t.createdAt)), Infinity);
     if (!Number.isFinite(oldestMs)) break; // nothing with a parseable date left to bound by
-    cursor = new Date(oldestMs - 1).toISOString();
+    cursor = new Date(oldestMs).toISOString(); // inclusive — see comment above
   }
 
   return results;

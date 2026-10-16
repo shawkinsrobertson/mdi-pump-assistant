@@ -829,17 +829,31 @@ on-device sign-off before merging.
   with. Fixed by having `fetchNightscoutTreatments` page backward through
   the window: each page is bounded above by a `created_at <$lte>` cursor
   (unset on the first page, so it starts from "now"), the oldest
-  `created_at` seen in a page becomes the next page's cursor (minus 1ms
-  so the boundary record isn't re-fetched), and pagination stops once a
-  page comes back short of `count` (or empty) — with a hard 50-page cap
-  so a pathological server response can't loop forever. `syncNightscoutTreatments`
-  itself needed no changes: it already only advances `nightscoutLastSyncedAt`
+  `created_at` seen in a page becomes the next page's cursor, and
+  pagination stops once a page comes back short of `count` (or empty) —
+  with a hard 50-page cap so a pathological server response can't loop
+  forever. The cursor is *inclusive*, not `oldestMs - 1ms` as an initial
+  version of this fix used: an independent review of this same change
+  caught that an exclusive cursor silently and permanently drops any
+  treatment tied on the exact same `created_at` as the page boundary if
+  it didn't make it into that page (realistic — some uploaders omit
+  milliseconds, and a closed-loop system can batch-upload several
+  entries within the same second) — the next page's `$lte` would exclude
+  that timestamp outright, so the tied sibling is never re-fetched.
+  Re-including the boundary value and relying on `seenIds` to dedupe
+  across pages recovers it instead; pagination now also stops as soon as
+  a full page contributes zero records not already in `seenIds` (not
+  just on a short/empty page), since repeating the same cursor past that
+  point can't make further progress. `syncNightscoutTreatments` itself
+  needed no changes: it already only advances `nightscoutLastSyncedAt`
   after the fetch resolves, so once the fetch actually retrieves the full
   window per call, incremental syncs stay correct. Regression-tested in
   `lib/nightscout/__tests__/client.test.js` (mocked `global.fetch`
-  reproducing Nightscout's newest-first/count-truncation behavior) —
-  confirmed the new multi-page tests fail against the unpatched
-  single-request implementation before re-applying the fix.
+  reproducing Nightscout's newest-first/count-truncation behavior),
+  including a dedicated tied-timestamp case — confirmed each new test
+  fails against the version of the code it targets (the original
+  single-request implementation, and separately the exclusive-cursor
+  version) before re-applying the fix.
 
 **Reported, not yet root-caused:**
 - The Health sync permission toggle (Settings > Integrations) doesn't
