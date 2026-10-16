@@ -41,6 +41,7 @@ export function AccountProfileScreen() {
   const [settings, updateSettings, loaded] = useSettings();
   const styles = useSettingsStyles();
   const { colors } = useTheme();
+  const [name, setName] = useState('');
   const [isf, setIsf] = useState('');
   const [carbRatio, setCarbRatio] = useState('');
   const [targetBG, setTargetBG] = useState('');
@@ -59,6 +60,7 @@ export function AccountProfileScreen() {
 
   useEffect(() => {
     if (!loaded) return;
+    setName(settings.name ?? '');
     setIsf(settings.isf?.toString() ?? '');
     setCarbRatio(settings.carbRatio?.toString() ?? '');
     setTargetBG(settings.targetBG?.toString() ?? '');
@@ -98,6 +100,7 @@ export function AccountProfileScreen() {
 
     updateSettings({
       ...settings,
+      name: name.trim() === '' ? null : name.trim(),
       isf: numOrNull(isf),
       carbRatio: numOrNull(carbRatio),
       targetBG: numOrNull(targetBG),
@@ -126,6 +129,18 @@ export function AccountProfileScreen() {
         <Text style={styles.title}>Account and Profile</Text>
         {saved && <Text style={styles.confirmed}>Saved ✓</Text>}
       </View>
+
+      <Card style={styles.card}>
+        <Text style={styles.cardTitle}>Profile</Text>
+        <SettingsField
+          label="Name"
+          value={name}
+          onChangeText={setName}
+          keyboardType="default"
+          placeholder="Your name"
+          last
+        />
+      </Card>
 
       <Card style={styles.card}>
         <Text style={styles.cardTitle}>Dosing and Treatment Configuration</Text>

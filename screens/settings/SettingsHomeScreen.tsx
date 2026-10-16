@@ -3,6 +3,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../lib/ThemeContext';
+import { useSwipeTabNavigation } from '../../lib/useSwipeTabNavigation';
 import type { SettingsStackParamList } from './SettingsNavigator';
 
 type Props = NativeStackScreenProps<SettingsStackParamList, 'SettingsHome'>;
@@ -60,11 +61,18 @@ export function SettingsHomeScreen({ navigation }: Props) {
   // status bar/notch itself. Confirmed running the "Settings" title and
   // first card into the status bar without this.
   const insets = useSafeAreaInsets();
+  // Swipes here move between the 4 bottom tabs (Dashboard/Logbook/Trends/
+  // Settings), same as Dashboard/Logbook/Trends — but this screen's own
+  // `navigation` is the Settings *stack*'s, not the tab navigator's, since
+  // SettingsNavigator (a native-stack) is what's actually mounted as the
+  // Settings <Tab.Screen>. getParent() reaches that tab navigator instead.
+  const swipeHandlers = useSwipeTabNavigation(navigation.getParent());
 
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.bg.surface }]}
       contentContainerStyle={[styles.content, { padding: spacing.xl, paddingTop: insets.top + spacing.xl, paddingBottom: 120 }]}
+      {...swipeHandlers.panHandlers}
     >
       <Text style={[styles.title, { color: colors.text.primary, fontSize: 22 * fontScale, marginBottom: spacing.base }]}>
         Settings
