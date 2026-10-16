@@ -2,6 +2,7 @@ import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppTabBar } from './components/AppTabBar';
 import { GlucoseProvider } from './lib/GlucoseContext';
 import { registerHealthSyncTask } from './lib/tasks/healthSyncTask';
@@ -51,10 +52,15 @@ export default function App() {
   }, []);
 
   return (
-    <ThemeProvider>
-      <GlucoseProvider>
-        <AppNavigator />
-      </GlucoseProvider>
-    </ThemeProvider>
+    // react-native-gesture-handler's native pan recognizer (used for
+    // cross-tab swipe nav — see lib/useSwipeTabNavigation.ts) needs its
+    // root view in the tree exactly once, above everything that uses it.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <GlucoseProvider>
+          <AppNavigator />
+        </GlucoseProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

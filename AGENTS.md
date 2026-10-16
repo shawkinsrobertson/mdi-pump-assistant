@@ -19,10 +19,11 @@ wrapping everything), so any tab — not just Dashboard — can read live
 current BG/history via `useGlucose()` without starting its own poll.
 Quick-entry flows that don't warrant their own tab (Quick Log, Connect
 Meter, Log Basal Dose, Prediction) remain modals, launched from
-Dashboard. `TrendsScreen` is currently a placeholder — Time in Range,
-Ambulatory Glucose Profile, and a clinician export are designed (see the
-mockups from that session) but not yet built; "Patterns and Insights"
-within Trends is explicitly deferred as a future LLM-integration task.
+Dashboard. `TrendsScreen` now has working Time in Range and Ambulatory
+Glucose Profile cards, plus an AI-generated Insights card
+(`lib/insights/`, `lib/tasks/insightTask.ts`) fed by a configurable
+webhook — see the `## Status` section for current details. A clinician
+export is still not built.
 
 Adding `@react-navigation/*`, `react-native-screens`, and
 `react-native-safe-area-context` means any environment building this app
@@ -743,15 +744,102 @@ This environment has no physical device or emulator, so:
 
 ## Status
 
-Live CGM + Bluetooth meter ingestion, the trend graph, local treatment
-storage, the bolus wizard, and a real local oref0-based prediction engine
-(IOB/COB/autosens/carb-suggestion, adapted for a fixed MDI basal instead
-of a pump's temp basal — see `lib/oref-vendor/`) are all implemented and
-running on-device. The 4-tab navigation shell (Dashboard/Logbook/Trends/
-Settings) is in place. Trends has working Time in Range and Ambulatory
-Glucose Profile cards (`lib/trends/`, `components/AgpChart.tsx`) fed by
-glucose_readings' 90-day retention; Patterns/Insights and the clinician
-export remain "coming soon".
+_Last updated: October 2026 — see the dated entries below for what's new
+since the previous pass; everything else in this file predates this
+update and may describe earlier states of the UI._
+
+Live CGM + Bluetooth meter ingestion, local treatment storage, the bolus
+wizard, Nightscout connectivity (alternate glucose source + reference-only
+treatment sync into the Logbook), read-only HealthKit/Health Connect sync,
+and a real local oref0-based prediction engine (IOB/COB/autosens/carb-
+suggestion, adapted for a fixed MDI basal instead of a pump's temp basal —
+see `lib/oref-vendor/`) are all implemented and merged to `main`. The
+4-tab navigation shell (Dashboard/Logbook/Trends/Settings) is in place,
+each tab reachable via the bottom tab bar or a left/right swipe
+(`lib/useSwipeTabNavigation.ts`, built on `react-native-gesture-handler` —
+new native dependency, needs a dev-client rebuild after pulling). Trends
+has working Time in Range and Ambulatory Glucose Profile cards
+(`lib/trends/`, `components/AgpChart.tsx`) fed by glucose_readings' 90-day
+retention; Patterns/Insights and the clinician export remain "coming
+soon".
+
+**PRs #12 → #13 → #14 (stacked on each other, not yet merged to `main`):**
+the Sept 2026 "MDI mode cleanup" / "Overall functionality" / "NS Treatment
+Sync" feedback pass — dashboard IOB/COB decay timer + unavailable-state
+placeholder, chart label sizing, CGM source badge, Settings safe-area
+inset, Logbook filter chips + sticky date headers, the first (since
+replaced) swipe-nav implementation, welcome name/avatar, and hourly "SMB"
+grouping for Nightscout Correction Bolus entries. Still pending final
+on-device sign-off before merging.
+
+**Fixed in the October 2026 pass (on top of #12-14's branch,
+`claude/ns-logbook-smb-grouping`):**
+- **IOB/COB silently stopped updating after the first dose of a
+  session**, and carbs got stuck on a "waiting on CGM data" placeholder
+  instead of ever populating COB. Root cause: `getTreatmentsSince()`
+  returns rows oldest-first (`ORDER BY created_at ASC`), but
+  `toPumpHistory()` (`lib/oref/predictionCore.ts`) passed that straight
+  through to the vendored `lib/oref-vendor/lib/iob/history.js`, which
+  assumes newest-first and silently discards any entry it sees as
+  "out of order" relative to the one before it — in practice, every
+  bolus after the very first one in the fetched window. The same
+  unsorted array also fed `generateMealData()`'s own internal IOB-based
+  deviation check (`meal/total.js`'s `recentCarbs()`), so the same bug
+  was corrupting cob.js's carb-absorption confirmation too. Fixed by
+  sorting `toPumpHistory()`'s output newest-first, matching the contract
+  `toGlucoseData()` already followed. Regression-tested in
+  `lib/oref/__tests__/predictionCore.test.js` — confirmed the new test
+  fails exactly as predicted with the fix reverted, before re-applying it.
+- **Swipe navigation was jerky and sometimes didn't register**, especially
+  from Dashboard/Trends where it had to compete with vertical ScrollView
+  scrolling. The original implementation used core React Native's
+  `PanResponder`, which negotiates touch ownership in JS and lost that
+  race against the ScrollView's native scroll handler. Rewritten on
+  `react-native-gesture-handler`'s `Gesture.Pan()` with
+  `activeOffsetX`/`failOffsetY`, which hands that negotiation to the
+  native gesture recognizer instead of JS. **New native dependency — needs
+  a dev-client rebuild**, not just a JS reload.
+- Logbook's sticky date-section headers used `colors.bg.primary` (a card
+  white/near-black) while the page itself uses `colors.bg.surface` —
+  visibly mismatched in both themes. Now matches the page background.
+
+**Reported, not yet root-caused:**
+- Nightscout treatment entries logged before today don't persist in the
+  Logbook past the current day — needs a repro + trace through
+  `lib/nightscout/sync.ts` / `lib/db/nightscoutTreatments.ts`'s retention
+  or query-window logic.
+- The Health sync permission toggle (Settings > Integrations) doesn't
+  persist across an app reload — needs a repro + trace through
+  `lib/health/sync.ts`'s permission-check/storage path.
+
+**Deferred / not built (still accurate):**
+- Clinician export (Trends) — still a literal "coming soon" alert.
+- A real "Import from Nightscout backup" feature — v1 deliberately
+  doesn't have this; only a dev-only "Seed test data" button exists
+  (Settings > Data and Sharing), which **must be removed before any real
+  release build**.
+- A Pump vs. MDI mode selector — explicitly scoped out of the Nightscout
+  connectivity cycle (PR #11), to be revisited as its own phase.
+
+**New asks, not started (October 2026 JTBD pass):**
+- Move off the n8n-based webhook integration and cancel that
+  subscription — needs scoping first: what currently depends on it
+  (`insightsWebhookUrl`?) and what replacing/self-hosting it would take.
+- Research smart-pen integration options.
+- Personalization: a profile-picture option that updates the Dashboard/
+  nav icon (currently always the app's own icon — see the welcome-row
+  avatar work from the Sept pass).
+- Initial onboarding + tooltip tour, re-accessible later from Settings >
+  Tutorials and Help.
+- In-app tutorials covering connections, troubleshooting, and exporting,
+  under Settings > Tutorials and Help.
+- Contact info + a bug/feature-request form in the Help section.
+- A dedicated dark-theme contrast pass across the graph, cards, and
+  buttons (distinct from the chart gridline/band contrast work already
+  done in the Sept pass — this is broader than just the chart).
+- A touch-target/font-size audit — multiple small touch targets and small
+  fonts flagged across the app; needs a systematic pass, not just the
+  Logbook title-size fix already done.
 
 `lib/importers/nightscout.ts` parses real Nightscout-format entries/
 treatments exports (the same shape AAPS/xDrip+/Nightscout all produce).
@@ -781,30 +869,10 @@ section, all of Trends' cards, and Settings (now grouped into Dosing /
 Time in Range / Developer cards) all use the new Card. Logbook now
 groups entries under Today/Yesterday/date section headers.
 
-**On-device UI issues flagged from the first restyle pass (screenshots
-of Dashboard + Trends):**
-- Dashboard: content (reading card + action buttons) no longer
-  vertically centers on short screens now that it's a `ScrollView`
-  instead of a centered `View` — leaves a large empty gap above the tab
-  bar. Fix likely `flexGrow: 1` + `justifyContent: 'center'` on
-  `contentContainerStyle`, or accept top-alignment and tighten spacing
-  instead. **Still open.**
-- ~~Trends: the AGP chart renders as a thin squiggle...~~ **Fixed** —
-  `components/AgpChart.tsx` now uses a data-adaptive y-domain (was a
-  fixed 40-260 range) and a taller aspect ratio; Trends labels bumped to
-  >=14pt. See the "user flow diagrams" work below.
-- Bottom tab bar: user reports icons read as "very tiny" — current
-  `iconSize.base` (26px) may need to move up a step (`lg`/32px), and/or
-  the pill needs more padding. (The dark strip visible below the pill in
-  the screenshots is the user's own Android system nav bar, confirmed
-  not an app issue — no `AppTabBar`/`app.json` change needed there.)
-- The floating gray gear-icon bubble seen top-right in both screenshots
-  is confirmed to be Expo Dev Client's own floating dev-menu bubble, not
-  app UI — no action needed.
-- Dashboard IOB/COB header stat, Quick Actions icon row, and the
-  collapsible Bolus Wizard card are still intentionally unbuilt (see
-  below) — the "missing elements" feedback likely includes these; not a
-  new regression.
+(The on-device UI issues originally flagged from the first restyle pass —
+Dashboard vertical centering, tab-bar icon size, AGP chart scaling — have
+all since been addressed or superseded by later passes; see the `## Status`
+section above for the current state instead of this historical note.)
 
 ## User flow diagrams (2nd design pass)
 
