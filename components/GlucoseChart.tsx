@@ -1,4 +1,5 @@
-import { Pressable, View } from 'react-native';
+import { useState } from 'react';
+import { type LayoutChangeEvent, Pressable, View } from 'react-native';
 import Svg, { Circle, Line, Path, Polygon, Rect, Text as SvgText } from 'react-native-svg';
 import { bgColor } from '../lib/glucose';
 import { formatTime } from '../lib/time';
@@ -30,6 +31,11 @@ const WIDTH = 800;
 const HEIGHT = 500; // the chart is this card's focal point — enlarged again alongside shrinking the reading number
 const PADDING = { top: 24, right: 24, bottom: 32, left: 46 };
 const MARKER_SIZE = 7;
+
+// The axis labels' target size in real screen pixels, not SVG viewBox
+// units — see the `scale` comment below for why those aren't the same
+// number.
+const LABEL_FONT_PX = 16;
 
 // Exposed so DashboardScreen can inset its right-aligned "min ago" label by
 // the same amount, rather than aligning it to the raw card edge — the SVG's
@@ -77,6 +83,32 @@ export function GlucoseChart({
   colors,
   onPress,
 }: GlucoseChartProps) {
+  // The <Svg> below has a fixed 800x500 viewBox that gets scaled to
+  // whatever width the card actually renders at (`width="100%"` +
+  // preserveAspectRatio="none") — so a raw SVG fontSize is in viewBox
+  // units, not real screen pixels. A fontSize of 14 was rendering as
+  // roughly 6-7px on a typical phone once that scaling was accounted
+  // for, not 14px — confirmed too small to read. Measuring the real
+  // rendered width via onLayout and dividing it out lets label sizes be
+  // specified in actual target pixels (LABEL_FONT_PX) regardless of
+  // device or card width. Must be called unconditionally (before the
+  // early return below) per the Rules of Hooks; defaults to no scaling
+  // (viewBox width) until the first layout pass measures the real one.
+  const [renderedWidth, setRenderedWidth] = useState(WIDTH);
+  const scale = renderedWidth / WIDTH;
+  const labelFontSize = LABEL_FONT_PX / scale;
+  const handleLayout = (e: LayoutChangeEvent) => setRenderedWidth(e.nativeEvent.layout.width);
+  // left/bottom need to grow at the same rate as the label font so the
+  // y-axis ("70"/"180") and x-axis (time) labels always have room to
+  // render without clipping past the plot area, regardless of device
+  // width — top/right have no text anchored to them, so they stay at
+  // their original fixed viewBox values.
+  const padding = {
+    ...PADDING,
+    left: Math.max(PADDING.left, labelFontSize * 2.2), // enough for a 3-digit label ("180") plus a small margin
+    bottom: Math.max(PADDING.bottom, labelFontSize + 16), // enough for the time label's height below the plot
+  };
+
   if (history.length === 0) return null;
 
   const last = history[history.length - 1];
@@ -97,10 +129,10 @@ export function GlucoseChart({
   const maxV = Math.max(260, ...vals);
 
   const x = (t: number) =>
-    PADDING.left + ((t - minT) / Math.max(1, maxT - minT)) * (WIDTH - PADDING.left - PADDING.right);
+    padding.left + ((t - minT) / Math.max(1, maxT - minT)) * (WIDTH - padding.left - padding.right);
   const y = (v: number) =>
-    PADDING.top + (1 - (v - minV) / (maxV - minV)) * (HEIGHT - PADDING.top - PADDING.bottom);
-  const markerBaselineY = HEIGHT - PADDING.bottom - 6;
+    padding.top + (1 - (v - minV) / (maxV - minV)) * (HEIGHT - padding.top - padding.bottom);
+  const markerBaselineY = HEIGHT - padding.bottom - 6;
   const visibleMarkers = markers.filter((m) => m.time >= minT && m.time <= maxT);
 
   const linePath = visibleHistory
@@ -134,14 +166,14 @@ export function GlucoseChart({
   }
 
   const chart = (
-    <View style={{ width: '100%', aspectRatio: WIDTH / HEIGHT }}>
+    <View style={{ width: '100%', aspectRatio: WIDTH / HEIGHT }} onLayout={handleLayout}>
       <Svg width="100%" height="100%" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none">
         {bands.map((b) => (
           <Rect
             key={`${b.from}-${b.to}`}
-            x={PADDING.left}
+            x={padding.left}
             y={y(b.to)}
-            width={WIDTH - PADDING.left - PADDING.right}
+            width={WIDTH - padding.left - padding.right}
             height={y(b.from) - y(b.to)}
             fill={b.color}
           />
@@ -152,8 +184,8 @@ export function GlucoseChart({
             key={`vgrid-${t}`}
             x1={x(t)}
             x2={x(t)}
-            y1={PADDING.top}
-            y2={HEIGHT - PADDING.bottom}
+            y1={padding.top}
+            y2={HEIGHT - padding.bottom}
             stroke={colors.chart.grid}
             strokeDasharray="2 4"
             strokeWidth={1}
@@ -163,9 +195,9 @@ export function GlucoseChart({
           <SvgText
             key={`vlabel-${t}`}
             x={x(t)}
-            y={HEIGHT - PADDING.bottom + 20}
+            y={HEIGHT - padding.bottom + 20}
             textAnchor="middle"
-            fontSize={14}
+            fontSize={labelFontSize}
             fill={colors.chart.muted}
           >
             {formatTime(new Date(t), timeFormat)}
@@ -175,8 +207,8 @@ export function GlucoseChart({
         {[70, 180].map((v) => (
           <Line
             key={`grid-${v}`}
-            x1={PADDING.left}
-            x2={WIDTH - PADDING.right}
+            x1={padding.left}
+            x2={WIDTH - padding.right}
             y1={y(v)}
             y2={y(v)}
             stroke={colors.chart.grid}
@@ -187,10 +219,10 @@ export function GlucoseChart({
         {[70, 180].map((v) => (
           <SvgText
             key={`label-${v}`}
-            x={PADDING.left - 6}
+            x={padding.left - 6}
             y={y(v) + 5}
             textAnchor="end"
-            fontSize={14}
+            fontSize={labelFontSize}
             fontWeight="600"
             fill={colors.chart.muted}
           >
