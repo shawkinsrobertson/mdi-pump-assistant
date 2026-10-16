@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { runPrediction, type PredictionResult } from './runPrediction';
 
 // Shared by DashboardScreen (IOB/COB stat) and PredictionCallout (the
@@ -14,22 +14,37 @@ export function usePrediction(refreshToken: number) {
   const [error, setError] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
 
-  const check = useCallback(() => {
+  // Guards against an out-of-order resolution: refreshToken can bump more
+  // than once in quick succession (log a dose, then immediately refocus
+  // the tab; or the dose-triggered refresh races the 60s decay timer),
+  // firing overlapping runPrediction() calls with no guarantee the one
+  // that *started* first also *finishes* first — SQLite/async timing
+  // varies in ways a fast local jest run never exercises. Without this,
+  // a slower, now-stale call finishing after a faster, newer one would
+  // silently clobber the correct result with an outdated one — surfacing
+  // as "IOB doesn't update for a subsequent dose" (the fresher result got
+  // overwritten right back to the pre-dose value) or "COB reverts to
+  // waiting on CGM data after navigating away and back" (a stale pending
+  // result from an earlier, slower in-flight call landing last).
+  const latestRequestId = useRef(0);
+
+  useEffect(() => {
+    const requestId = ++latestRequestId.current;
     runPrediction()
       .then((r) => {
+        if (requestId !== latestRequestId.current) return; // superseded by a newer request
         setResult(r);
         setError(null);
       })
       .catch((e) => {
+        if (requestId !== latestRequestId.current) return;
         setResult(null);
         setError(e instanceof Error ? e.message : String(e));
       })
-      .finally(() => setChecked(true));
-  }, []);
-
-  useEffect(() => {
-    check();
-  }, [check, refreshToken]);
+      .finally(() => {
+        if (requestId === latestRequestId.current) setChecked(true);
+      });
+  }, [refreshToken]);
 
   return { result, error, checked };
 }
