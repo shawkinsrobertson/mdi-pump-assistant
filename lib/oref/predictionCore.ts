@@ -110,9 +110,28 @@ export function checkRequiredSettings(settings: Settings): RequiredSettings | st
 
 // oref0's own shape: {_type, amount, timestamp} for boluses (see
 // lib/oref-vendor/lib/iob/history.js and meal/history.js).
+//
+// Must be newest-first — lib/oref-vendor/lib/iob/history.js's
+// calcTempTreatments() walks this array with `lastRecordTime` seeded to
+// `now` and does `if (currentRecordTime > lastRecordTime) continue;` to
+// skip "duplicate or out-of-order records." That heuristic only works if
+// each entry's timestamp is <= the previous one — fed oldest-first (what
+// getTreatmentsSince's `ORDER BY created_at ASC` returns), every bolus
+// after the very first gets silently treated as "out of order" and
+// dropped, which is exactly why only the first logged dose in a session
+// ever showed up in IOB (bug report: "subsequent insulin doses" not
+// updating). This same `pumpHistory` array also feeds
+// generateMealData()'s nested IOB-based deviation calc (see
+// meal/total.js's recentCarbs(), which builds its own iob_inputs.history
+// from it) — so the same ordering bug was also corrupting the
+// confirmed-absorption check cob.js uses, surfacing as carbs stuck on
+// the "waiting on CGM data" placeholder. toGlucoseData() below already
+// sorts newest-first for the same reason; this just extends that same
+// contract to boluses.
 export function toPumpHistory(treatments: Treatment[]): Array<{ _type: string; amount: number; timestamp: string }> {
   return treatments
     .filter((t) => t.insulin != null && t.insulin > 0)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((t) => ({ _type: 'Bolus', amount: t.insulin!, timestamp: t.createdAt }));
 }
 
