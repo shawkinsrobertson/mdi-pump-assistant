@@ -3,6 +3,7 @@ import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-
 import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActivityLogModal } from '../components/ActivityLogModal';
 import { BolusWizardCard } from '../components/BolusWizardCard';
@@ -53,7 +54,7 @@ export function DashboardScreen({ navigation }: { navigation: NavigationProp<Par
   const sourceBadgeColor = glucoseSource === 'nightscout' ? colors.text.tertiary : colors.accent.xdrip;
   const [settings] = useSettings();
   const displayName = settings.name?.trim() || 'User';
-  const swipeHandlers = useSwipeTabNavigation(navigation);
+  const swipeGesture = useSwipeTabNavigation(navigation);
   const insets = useSafeAreaInsets();
 
   const [predictionVisible, setPredictionVisible] = useState(false);
@@ -195,10 +196,10 @@ export function DashboardScreen({ navigation }: { navigation: NavigationProp<Par
   const iobCobUnavailable = prediction.checked && iobCob === null;
 
   return (
+    <GestureDetector gesture={swipeGesture}>
     <ScrollView
       style={styles.container}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}
-      {...swipeHandlers.panHandlers}
     >
       <View style={styles.welcomeRow}>
         <Image source={require('../assets/dashboard-icon.png')} style={styles.avatarIcon} />
@@ -356,6 +357,7 @@ export function DashboardScreen({ navigation }: { navigation: NavigationProp<Par
       <ActivityLogModal visible={activityVisible} onClose={() => setActivityVisible(false)} onLogged={refreshAfterLog} />
       <NotesLogModal visible={notesVisible} onClose={() => setNotesVisible(false)} onLogged={refreshAfterLog} />
     </ScrollView>
+    </GestureDetector>
   );
 }
 

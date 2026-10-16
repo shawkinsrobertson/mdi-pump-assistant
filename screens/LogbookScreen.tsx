@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, RefreshControl, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BleMeterModal } from '../components/BleMeterModal';
 import { LogbookEntryModal } from '../components/LogbookEntryModal';
@@ -292,7 +293,7 @@ export function LogbookScreen({ navigation }: { navigation: NavigationProp<Param
   const { colors, spacing, fontScale } = useTheme();
   const styles = useMemo(() => makeStyles(colors, spacing, fontScale), [colors, spacing, fontScale]);
   const insets = useSafeAreaInsets();
-  const swipeHandlers = useSwipeTabNavigation(navigation);
+  const swipeGesture = useSwipeTabNavigation(navigation);
   const { reportBleLiveReading, reportBleHistorySync } = useGlucose();
   const [settings] = useSettings();
   const [treatments, setTreatments] = useState<Treatment[] | null>(null);
@@ -491,7 +492,8 @@ export function LogbookScreen({ navigation }: { navigation: NavigationProp<Param
   );
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]} {...swipeHandlers.panHandlers}>
+    <GestureDetector gesture={swipeGesture}>
+    <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
       <Text style={styles.title}>Logbook</Text>
 
       <Pressable onPress={() => setBleModalVisible(true)} style={styles.connectMeterLink}>
@@ -621,6 +623,7 @@ export function LogbookScreen({ navigation }: { navigation: NavigationProp<Param
         }}
       />
     </View>
+    </GestureDetector>
   );
 }
 
@@ -698,7 +701,12 @@ function makeStyles(
       paddingBottom: 120,
     },
     sectionHeader: {
-      backgroundColor: colors.bg.primary,
+      // Matches the page background (container, above) rather than
+      // bg.primary (a card-white/near-black) — needs to stay opaque since
+      // it's sticky and has to cover whatever scrolls behind it, but
+      // on-device feedback was that a mismatched color made the pinned
+      // header look like a separate floating bar instead of blending in.
+      backgroundColor: colors.bg.surface,
       paddingTop: spacing.base,
     },
     sectionTitle: {

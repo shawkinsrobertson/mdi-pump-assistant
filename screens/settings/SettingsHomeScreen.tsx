@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../lib/ThemeContext';
 import { useSwipeTabNavigation } from '../../lib/useSwipeTabNavigation';
@@ -66,13 +67,13 @@ export function SettingsHomeScreen({ navigation }: Props) {
   // `navigation` is the Settings *stack*'s, not the tab navigator's, since
   // SettingsNavigator (a native-stack) is what's actually mounted as the
   // Settings <Tab.Screen>. getParent() reaches that tab navigator instead.
-  const swipeHandlers = useSwipeTabNavigation(navigation.getParent());
+  const swipeGesture = useSwipeTabNavigation(navigation.getParent());
 
   return (
+    <GestureDetector gesture={swipeGesture}>
     <ScrollView
       style={[styles.container, { backgroundColor: colors.bg.surface }]}
       contentContainerStyle={[styles.content, { padding: spacing.xl, paddingTop: insets.top + spacing.xl, paddingBottom: 120 }]}
-      {...swipeHandlers.panHandlers}
     >
       <Text style={[styles.title, { color: colors.text.primary, fontSize: 24 * fontScale, marginBottom: spacing.base }]}>
         Settings
@@ -105,6 +106,7 @@ export function SettingsHomeScreen({ navigation }: Props) {
         </Pressable>
       ))}
     </ScrollView>
+    </GestureDetector>
   );
 }
 

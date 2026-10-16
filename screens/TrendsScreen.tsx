@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AgpChart } from '../components/AgpChart';
 import { Card } from '../components/ui/Card';
@@ -72,7 +73,7 @@ function formatSummaryValue(stat: SummaryStat, value: number): string {
 export function TrendsScreen({ navigation }: { navigation: NavigationProp<ParamListBase> }) {
   const [settings, , settingsLoaded] = useSettings();
   const { colors: themeColors, spacing: themeSpacing, radius: themeRadius, fontScale } = useTheme();
-  const swipeHandlers = useSwipeTabNavigation(navigation);
+  const swipeGesture = useSwipeTabNavigation(navigation);
   const insets = useSafeAreaInsets();
   const styles = useMemo(
     () => makeStyles(themeColors, themeSpacing, themeRadius, fontScale),
@@ -171,10 +172,10 @@ export function TrendsScreen({ navigation }: { navigation: NavigationProp<ParamL
   const patternAccents = useMemo(() => patternAccentColors(themeColors), [themeColors]);
 
   return (
+    <GestureDetector gesture={swipeGesture}>
     <ScrollView
       style={styles.container}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + themeSpacing.xl }]}
-      {...swipeHandlers.panHandlers}
     >
       <View style={styles.headerRow}>
         <Text style={styles.title}>Trends</Text>
@@ -368,6 +369,7 @@ export function TrendsScreen({ navigation }: { navigation: NavigationProp<ParamL
         </Pressable>
       </Card>
     </ScrollView>
+    </GestureDetector>
   );
 }
 
