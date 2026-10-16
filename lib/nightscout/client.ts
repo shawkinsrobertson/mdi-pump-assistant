@@ -85,19 +85,75 @@ export async function fetchNightscoutEntries(baseUrl: string, token: string, cou
 
 // find[created_at][$gte]=<ISO> — Nightscout's Mongo-query-shaped REST
 // filter syntax, not a bespoke "since" param of this app's own invention.
+//
+// Nightscout's REST API sorts matching documents newest-first by default
+// (no explicit sort param) and `count` caps the *result set size*, not a
+// pagination cursor — a single request against a wide window (e.g. this
+// app's 7-day FIRST_SYNC_LOOKBACK_MS in lib/nightscout/sync.ts) silently
+// returns only the newest `count` matches and drops everything older
+// within that window. Confirmed on-device: a real closed-loop uploader
+// (AndroidAPS/Loop) posts a Temp Basal adjustment roughly every 5 minutes
+// — ~2000 potential matches over 7 days vs. the 200 default — so a first
+// sync came back with treatments from today only, and "synced 200
+// treatments" lined up exactly with the `count` default. That's the same
+// row-count-cap-starved-by-Temp-Basal-noise bug class as the Logbook's own
+// display query (see AGENTS.md's `## Status`), just one layer upstream in
+// the actual fetch from the Nightscout server.
+//
+// Fixed with cursor-based backward pagination: each page is bounded above
+// by `created_at <$lte>` (unset on the first page, so it starts from
+// "now"), and the oldest `created_at` seen in a page becomes the next
+// page's `$lte` cursor, minus 1ms so that boundary record isn't re-fetched
+// into the next page. Pagination stops once a page comes back with fewer
+// than `count` records (the `$gte..$lte` window is exhausted) or empty.
+// `lib/ble/racp.ts` is this app's other paginated remote fetch, but its
+// ascending-sequence-number protocol doesn't transfer here — Nightscout's
+// REST API gives no reliable ascending-sort guarantee to page forward by,
+// hence paging backward from "now" instead.
 export async function fetchNightscoutTreatments(
   baseUrl: string,
   token: string,
   sinceIso: string,
   count = 200,
 ): Promise<NightscoutTreatment[]> {
-  const url = buildUrl(baseUrl, '/api/v1/treatments.json', token, {
-    count: String(count),
-    'find[created_at][$gte]': sinceIso,
-  });
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Nightscout treatments request failed: HTTP ${response.status}`);
-  const data: unknown = await response.json();
-  if (!Array.isArray(data)) throw new Error('Unexpected Nightscout treatments response (expected an array)');
-  return data.map(normalizeTreatment).filter((t): t is NightscoutTreatment => t !== null);
+  // Hard cap on pages so a pathological server response (one that never
+  // returns a short/empty page) can't loop forever — same defensive-cap
+  // reasoning as lib/db/nightscoutTreatments.ts's pruneOldTreatments
+  // chunking. 50 pages * 200/page = 10,000 records is far beyond what even
+  // a worst-case week of closed-loop Temp Basal noise could produce.
+  const MAX_PAGES = 50;
+
+  const results: NightscoutTreatment[] = [];
+  const seenIds = new Set<string>();
+  let cursor: string | null = null; // find[created_at][$lte]; null = no upper bound yet ("now")
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params: Record<string, string> = {
+      count: String(count),
+      'find[created_at][$gte]': sinceIso,
+    };
+    if (cursor !== null) params['find[created_at][$lte]'] = cursor;
+
+    const url = buildUrl(baseUrl, '/api/v1/treatments.json', token, params);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Nightscout treatments request failed: HTTP ${response.status}`);
+    const data: unknown = await response.json();
+    if (!Array.isArray(data)) throw new Error('Unexpected Nightscout treatments response (expected an array)');
+
+    const normalized = data.map(normalizeTreatment).filter((t): t is NightscoutTreatment => t !== null);
+    for (const t of normalized) {
+      if (!seenIds.has(t.id)) {
+        seenIds.add(t.id);
+        results.push(t);
+      }
+    }
+
+    if (data.length < count) break; // short (or empty) page — window exhausted
+
+    const oldestMs = normalized.reduce((min, t) => Math.min(min, Date.parse(t.createdAt)), Infinity);
+    if (!Number.isFinite(oldestMs)) break; // nothing with a parseable date left to bound by
+    cursor = new Date(oldestMs - 1).toISOString();
+  }
+
+  return results;
 }

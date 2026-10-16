@@ -803,11 +803,45 @@ on-device sign-off before merging.
   white/near-black) while the page itself uses `colors.bg.surface` —
   visibly mismatched in both themes. Now matches the page background.
 
+**Fixed in the October 2026 pass (branch `claude/nightscout-sync-pagination`):**
+- **Nightscout treatment entries logged before today didn't persist in
+  the Logbook past the current day**, confirmed via on-device testing: a
+  manual sync reported "synced 200 treatments," but the Logbook only
+  showed today's entries, even though Health Connect/HealthKit entries in
+  the same Logbook correctly went back further. Root cause was one layer
+  upstream of the Logbook entirely: `fetchNightscoutTreatments`
+  (`lib/nightscout/client.ts`) made a single `GET /api/v1/treatments.json`
+  request with `find[created_at][$gte]=<sinceIso>` and `count=200`.
+  Nightscout's REST API sorts matches newest-first by default and
+  `count` caps the *result-set size*, not a page — when more documents
+  match the `$gte` filter than `count`, the server silently returns only
+  the newest `count` and drops everything older in the requested window.
+  A real closed-loop system (AndroidAPS/Loop) posts a Temp Basal
+  adjustment roughly every 5 minutes — ~2000 potential matches over the
+  7-day first-sync lookback (`lib/nightscout/sync.ts`'s
+  `FIRST_SYNC_LOOKBACK_MS`) vs. the 200 default — so a first sync came
+  back with today's treatments only, with "synced 200 treatments" lining
+  up exactly with the `count` default. This is the same row-count-cap-
+  starved-by-Temp-Basal-noise bug class as the Logbook's own display
+  query (`claude/logbook-30-day-window`, still open), just upstream in
+  the fetch from Nightscout itself — no amount of fixing the Logbook's
+  local-storage query can surface data that was never pulled in to begin
+  with. Fixed by having `fetchNightscoutTreatments` page backward through
+  the window: each page is bounded above by a `created_at <$lte>` cursor
+  (unset on the first page, so it starts from "now"), the oldest
+  `created_at` seen in a page becomes the next page's cursor (minus 1ms
+  so the boundary record isn't re-fetched), and pagination stops once a
+  page comes back short of `count` (or empty) — with a hard 50-page cap
+  so a pathological server response can't loop forever. `syncNightscoutTreatments`
+  itself needed no changes: it already only advances `nightscoutLastSyncedAt`
+  after the fetch resolves, so once the fetch actually retrieves the full
+  window per call, incremental syncs stay correct. Regression-tested in
+  `lib/nightscout/__tests__/client.test.js` (mocked `global.fetch`
+  reproducing Nightscout's newest-first/count-truncation behavior) —
+  confirmed the new multi-page tests fail against the unpatched
+  single-request implementation before re-applying the fix.
+
 **Reported, not yet root-caused:**
-- Nightscout treatment entries logged before today don't persist in the
-  Logbook past the current day — needs a repro + trace through
-  `lib/nightscout/sync.ts` / `lib/db/nightscoutTreatments.ts`'s retention
-  or query-window logic.
 - The Health sync permission toggle (Settings > Integrations) doesn't
   persist across an app reload — needs a repro + trace through
   `lib/health/sync.ts`'s permission-check/storage path.
