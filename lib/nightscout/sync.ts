@@ -25,22 +25,20 @@ export interface NightscoutSyncResult {
   treatments: number;
 }
 
-// `forceFullResync`: re-fetches the full FIRST_SYNC_LOOKBACK_MS window
-// regardless of nightscoutLastSyncedAt, rather than only the incremental
-// "since last sync" window. Exists for Settings > Integrations' "Resync
-// full history" action (IntegrationsScreen.tsx) — once
-// nightscoutLastSyncedAt has advanced, an ordinary sync only ever looks
-// forward from it, so a device that already ran a sync before
-// fetchNightscoutTreatments' pagination fix (which could silently drop
-// everything past the newest `count` matches) has no way to recover that
-// gap on its own; every later "since last sync" call starts from a point
-// that's already past it.
-export async function syncNightscoutTreatments(forceFullResync = false): Promise<NightscoutSyncResult> {
+// Self-healing one-time backfill for anyone upgrading past the on-device
+// bug where fetchNightscoutTreatments could silently drop treatments past
+// its result-set cap before a sync ever completed — by the time that's
+// fixed, nightscoutLastSyncedAt has already advanced past the gap it
+// never actually filled, and an ordinary incremental sync only ever looks
+// forward from there. See Settings.nightscoutSyncBackfilled's own comment
+// (lib/settings.ts) for why checking that flag is enough on its own,
+// with no separate migration step or user-facing control needed.
+export async function syncNightscoutTreatments(): Promise<NightscoutSyncResult> {
   const settings = await readSettings();
   if (!isNightscoutConfigured(settings)) return { treatments: 0 };
 
   const sinceMs =
-    settings.nightscoutLastSyncedAt && !forceFullResync
+    settings.nightscoutLastSyncedAt && settings.nightscoutSyncBackfilled
       ? new Date(settings.nightscoutLastSyncedAt).getTime()
       : Date.now() - FIRST_SYNC_LOOKBACK_MS;
 
@@ -50,7 +48,11 @@ export async function syncNightscoutTreatments(forceFullResync = false): Promise
     new Date(sinceMs).toISOString(),
   );
   await insertNightscoutTreatments(treatments);
-  await writeSettings({ ...settings, nightscoutLastSyncedAt: new Date().toISOString() });
+  await writeSettings({
+    ...settings,
+    nightscoutLastSyncedAt: new Date().toISOString(),
+    nightscoutSyncBackfilled: true,
+  });
 
   return { treatments: treatments.length };
 }

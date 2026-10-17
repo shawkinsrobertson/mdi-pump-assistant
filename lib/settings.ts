@@ -92,6 +92,20 @@ export interface Settings {
   // Drives the "since" window for the next Nightscout treatments sync
   // (lib/nightscout/sync.ts) — same pattern as healthLastSyncedAt.
   nightscoutLastSyncedAt: string | null;
+  // One-time self-healing flag for everyone upgrading past the on-device
+  // bug where fetchNightscoutTreatments (lib/nightscout/client.ts) could
+  // silently drop treatments past its result-set cap before a sync ever
+  // completed — by the time that's fixed, nightscoutLastSyncedAt has
+  // already advanced past the gap it never actually filled, and an
+  // ordinary incremental sync only ever looks forward from there. Every
+  // existing install's persisted settings blob predates this field, so
+  // it naturally falls back to this `false` default (see readSettings'
+  // `{ ...DEFAULT_SETTINGS, ...JSON.parse(raw) }` merge) — syncNightscoutTreatments
+  // treats that as "do one full-window resync, then stop asking." A
+  // fresh install also defaults to false, but that's a no-op there:
+  // nightscoutLastSyncedAt is already null, so the first sync does a
+  // full-window fetch regardless.
+  nightscoutSyncBackfilled: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -112,6 +126,7 @@ export const DEFAULT_SETTINGS: Settings = {
   nightscoutUrl: null,
   nightscoutToken: null,
   nightscoutLastSyncedAt: null,
+  nightscoutSyncBackfilled: false,
 };
 
 const STORAGE_KEY = 'app-settings';

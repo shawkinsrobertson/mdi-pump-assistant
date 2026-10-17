@@ -844,10 +844,23 @@ on-device sign-off before merging.
   across pages recovers it instead; pagination now also stops as soon as
   a full page contributes zero records not already in `seenIds` (not
   just on a short/empty page), since repeating the same cursor past that
-  point can't make further progress. `syncNightscoutTreatments` itself
-  needed no changes: it already only advances `nightscoutLastSyncedAt`
-  after the fetch resolves, so once the fetch actually retrieves the full
-  window per call, incremental syncs stay correct. Regression-tested in
+  point can't make further progress. Pagination alone wasn't enough for
+  anyone who'd already run at least one sync before this fix shipped,
+  though: `nightscoutLastSyncedAt` had already advanced past the gap it
+  never actually filled, and an ordinary incremental sync only ever
+  looks forward from there — confirmed via on-device testing of this
+  same branch, which still showed no historical NS treatments after a
+  sync reporting 0 new rows. Added a one-time self-healing backfill
+  instead of a manual "resync" control: `Settings.nightscoutSyncBackfilled`
+  (`lib/settings.ts`, default `false`) makes `syncNightscoutTreatments`
+  do one full-`FIRST_SYNC_LOOKBACK_MS`-window fetch instead of the
+  incremental "since last sync" one, then sets the flag so every later
+  sync goes back to incremental. Every existing install's persisted
+  settings blob predates this field, so it naturally defaults to `false`
+  for anyone affected (`readSettings`' `{ ...DEFAULT_SETTINGS,
+  ...JSON.parse(raw) }` merge) — no app-version check or migration step
+  needed, and a fresh install (where `nightscoutLastSyncedAt` is already
+  `null`) sees no behavior change at all. Regression-tested in
   `lib/nightscout/__tests__/client.test.js` (mocked `global.fetch`
   reproducing Nightscout's newest-first/count-truncation behavior),
   including a dedicated tied-timestamp case — confirmed each new test
