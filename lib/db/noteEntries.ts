@@ -76,6 +76,15 @@ export async function getRecentNoteEntries(count: number): Promise<NoteEntryReco
   return rows.map(fromRow);
 }
 
+export async function getNoteEntriesSince(timestamp: string): Promise<NoteEntryRecord[]> {
+  const database = getDb();
+  const rows = await database.getAllAsync<NoteEntryRow>(
+    `SELECT * FROM note_entries WHERE logged_at >= ? ORDER BY logged_at ASC`,
+    [timestamp],
+  );
+  return rows.map(fromRow);
+}
+
 export async function updateNoteEntry(id: number, edits: NoteEntryEdits): Promise<void> {
   const database = getDb();
   await database.runAsync(`UPDATE note_entries SET text = ? WHERE id = ?`, [edits.text, id]);

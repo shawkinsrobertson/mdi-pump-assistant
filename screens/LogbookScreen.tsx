@@ -6,24 +6,24 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BleMeterModal } from '../components/BleMeterModal';
 import { LogbookEntryModal } from '../components/LogbookEntryModal';
-import { deleteActivity, getRecentActivities, type ActivityRecord } from '../lib/db/activities';
-import { deleteBasalDose, getRecentBasalDoses, type BasalDoseRecord } from '../lib/db/basalDoses';
-import { deleteReading, getRecentReadingsBySource } from '../lib/db/glucoseReadings';
+import { deleteActivity, getActivitiesSince, type ActivityRecord } from '../lib/db/activities';
+import { deleteBasalDose, getRecentBasalDosesSince, type BasalDoseRecord } from '../lib/db/basalDoses';
+import { deleteReading, getReadingsSinceBySource } from '../lib/db/glucoseReadings';
 import {
   deleteHealthActivity,
   deleteHealthNutrition,
-  getRecentHealthActivities,
-  getRecentHealthNutrition,
+  getHealthActivitiesSince,
+  getHealthNutritionSince,
   type HealthActivityRecord,
   type HealthNutritionRecord,
 } from '../lib/db/health';
 import {
   deleteNightscoutTreatment,
-  getRecentNightscoutTreatments,
+  getNightscoutTreatmentsSince,
   type NightscoutTreatmentRecord,
 } from '../lib/db/nightscoutTreatments';
-import { deleteNoteEntry, getRecentNoteEntries, type NoteEntryRecord } from '../lib/db/noteEntries';
-import { deleteTreatment, getRecentTreatments, type Treatment } from '../lib/db/treatments';
+import { deleteNoteEntry, getNoteEntriesSince, type NoteEntryRecord } from '../lib/db/noteEntries';
+import { deleteTreatment, getTreatmentsSince, type Treatment } from '../lib/db/treatments';
 import type { GlucoseReading } from '../lib/glucose';
 import { useGlucose } from '../lib/GlucoseContext';
 import { syncHealthData } from '../lib/health/sync';
@@ -33,7 +33,13 @@ import { useSettings } from '../lib/settings';
 import { useTheme } from '../lib/ThemeContext';
 import { useSwipeTabNavigation } from '../lib/useSwipeTabNavigation';
 
-const RECENT_COUNT = 50;
+// A time window rather than a row-count cap: the previous RECENT_COUNT = 50
+// (most-recent-N-rows) approach got starved by high-frequency Nightscout
+// Temp Basal uploads from real closed-loop systems — mergeEntries drops
+// those rows, but only after they'd already consumed most/all of the fetch
+// limit, so genuinely recent treatments/notes/etc. silently vanished from
+// the Logbook even though the DB (90-day retention) still had them.
+const WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 // Source key GlucoseContext/useGlucoseSource tag Bluetooth meter readings
 // with (see reportBleHistorySync's replaceSource('ble', ...)) — the only
@@ -313,15 +319,17 @@ export function LogbookScreen({ navigation }: { navigation: NavigationProp<Param
 
   const refetch = useCallback(() => {
     setError(null);
+    const sinceMs = Date.now() - WINDOW_MS;
+    const sinceIso = new Date(sinceMs).toISOString();
     return Promise.all([
-      getRecentTreatments(RECENT_COUNT),
-      getRecentBasalDoses(RECENT_COUNT),
-      getRecentActivities(RECENT_COUNT),
-      getRecentNoteEntries(RECENT_COUNT),
-      getRecentReadingsBySource(BLE_READING_SOURCE, RECENT_COUNT),
-      getRecentHealthActivities(RECENT_COUNT),
-      getRecentHealthNutrition(RECENT_COUNT),
-      getRecentNightscoutTreatments(RECENT_COUNT),
+      getTreatmentsSince(sinceIso),
+      getRecentBasalDosesSince(sinceMs),
+      getActivitiesSince(sinceIso),
+      getNoteEntriesSince(sinceIso),
+      getReadingsSinceBySource(BLE_READING_SOURCE, sinceMs),
+      getHealthActivitiesSince(sinceMs),
+      getHealthNutritionSince(sinceMs),
+      getNightscoutTreatmentsSince(sinceMs),
     ])
       .then(
         ([
