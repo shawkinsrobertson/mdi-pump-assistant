@@ -84,12 +84,12 @@ export function IntegrationsScreen() {
     updateSettings({ ...settings, glucoseSource });
   };
 
-  const handleSyncNightscoutNow = async () => {
+  const handleSyncNightscoutNow = async (forceFullResync = false) => {
     setNsBusy(true);
     setNsError(null);
     setNsStatus(null);
     try {
-      const result = await syncNightscoutTreatments();
+      const result = await syncNightscoutTreatments(forceFullResync);
       // Same reasoning as handleSyncNow below: re-read rather than compute
       // nightscoutLastSyncedAt locally, so this screen shows exactly what
       // syncNightscoutTreatments() actually persisted.
@@ -246,9 +246,21 @@ export function IntegrationsScreen() {
           <Pressable
             style={[styles.button, nsBusy && styles.buttonDisabled]}
             disabled={nsBusy}
-            onPress={handleSyncNightscoutNow}
+            onPress={() => handleSyncNightscoutNow(false)}
           >
             <Text style={styles.buttonText}>{nsBusy ? 'Syncing…' : 'Sync now'}</Text>
+          </Pressable>
+          {/* Recovers a device whose last sync predates the fetch-pagination
+              fix (lib/nightscout/client.ts) and so already advanced
+              nightscoutLastSyncedAt past a gap it never actually filled —
+              an ordinary "Sync now" only looks forward from that point and
+              can't go back and fill it in on its own. */}
+          <Pressable
+            style={[styles.button, styles.buttonSecondary, nsBusy && styles.buttonDisabled, { marginTop: 8 }]}
+            disabled={nsBusy}
+            onPress={() => handleSyncNightscoutNow(true)}
+          >
+            <Text style={styles.buttonText}>{nsBusy ? 'Syncing…' : 'Resync full history'}</Text>
           </Pressable>
         </Card>
       )}
